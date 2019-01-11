@@ -1,0 +1,326 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Dec  7 09:55:16 2018
+
+@author: Ali ALICI
+"""
+
+#just for binary classification with gridsearch techniques.
+# One can change param_grid settings according the issue dealt with.
+#I have tried to explain functionalities of most confusing ones and gave refereneces for more info
+#After all, ROC Curve and Feature Importance graph functions are also defined for evaluation of model.
+
+import pandas as pd, numpy as np, matplotlib.pyplot as plt
+from math import radians, sin, cos, sqrt, asin
+from datetime import datetime
+import csv as csv
+import string
+import sys
+import difflib
+import numpy as np
+import matplotlib.pyplot as plt
+#from matplotlib.pyplot import *
+from scipy.stats import norm
+from sklearn.neighbors import KernelDensity
+from sklearn.grid_search import GridSearchCV
+from sklearn.cross_validation import LeaveOneOut
+from sklearn import datasets ## imports datasets from scikit-learn
+from sklearn.metrics import roc_curve, precision_recall_curve,  roc_auc_score, accuracy_score,   classification_report  , confusion_matrix , precision_recall_curve, auc, make_scorer, recall_score,  precision_score
+######
+from matplotlib import pyplot as plt
+import seaborn as sns
+######
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC  
+from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier  
+from sklearn.linear_model import LogisticRegression 
+######
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+np.set_printoptions(suppress=True)
+
+
+#let begin with ready datasets
+datax = datasets.load_breast_cancer() ## loads Boston dataset from datasets library 
+
+#You can see all data set list
+dir(datasets)
+
+#Should seperate target column from predictors. Otherwise model pretends to be seen as awesome:)
+X = pd.DataFrame(datax.data, columns=datax.feature_names)
+Y = pd.Series(datax.target)
+
+#Since our data set is not required for data standardization, we just use dataset in its initial form.
+#In our next kernel, i will try to give examples on 
+#      -standardization
+#      -dealing with categorical variables
+#      -PCA and LDA techniques for dimension reduction
+
+
+
+#define params of classifer. It is important that each param is classifier specisic.
+param_grid_TREE = {
+    #splitting criterion is just for directing model to choose correct metric.
+    #General possibilities are: gini, entropy, chi square
+    #All of them has tendency to split node to significant differentiate of target variable.
+    #For example you have 100sammples ant target variable YES (50 samples) and NO (50 samples). If your splitting   
+    #variable generates two sub nodes of which has 50% probabilty of having YES and NO meaning shit.
+    #It should significantly differentiate YES ond NO, for instance 10%YES and %90 No for a subnode is better than it.
+    #Useful detailed info is at:
+    #https://www.analyticsvidhya.com/blog/2016/04/complete-tutorial-tree-based-modeling-scratch-in-python/
+    #One more note: if it is regression tree, i.e target is continous, splitting critterion is:
+    #lower variance in splitted sub nodes. Because if variance between actual and predicted becomes
+    #decreased compared the parent, it means classifier is on the way that correctly differentiated 
+    #target
+   # 'criterion': ['gini', 'entropy'],
+    'min_samples_split': [2, 3, 5, 8], 
+    'max_depth': [3, 5, 8, 10],
+    'min_samples_leaf': [3, 5, 10, 12],
+    'random_state':  [0]
+    #,'class_weight': ["balanced"]
+}
+
+#Note that SVM is so time consuming especially kernels different than linear
+param_grid_SVM = {
+ #'kernel':('linear', 'rbf'), 
+ 'kernel':['linear'], 
+# 'C':(1,0.25,0.5,0.75), # C is just for regularization. There is a tradeoff between train error 
+#                        # and the largest minimum margin of hyperplane (test set error which model does not see yet)
+#                        # for detailed info, following site is so helpful: https://stats.stackexchange.com/questions/31066/what-is-the-influence-of-c-in-svms-with-linear-kernel
+'C':[0.1, 0.01, 1] , # C is just for regularization. There is a tradeoff between train error 
+                        # and the largest minimum margin of hyperplane (test set error which model does not see yet)
+                        # for detailed info, following site is so helpful: https://stats.stackexchange.com/questions/31066/what-is-the-influence-of-c-in-svms-with-linear-kernel                        
+ #'gamma': (1,2,3,'auto'),
+ 'gamma': ['auto'],  #When gamma is low, the ‘curve’ of the decision boundary is very low and thus the decision region is very broad. When gamma is high, the ‘curve’ of the decision boundary is high, which creates islands of decision-boundaries around data points.
+ 'decision_function_shape':['ovr'], # ovo: one vs. one : Assume that you have 3 classes A,B,C. OVO assigns classifiers for a sample being A or B, A or C, B or C
+                                    # ovr: one vs. rest : Assume that you have 3 classes A,B,C. OVO assigns classifiers for a sample being A or Not, B or NOT, C or NOT    
+                                    # https://scikit-learn.org/dev/modules/multiclass.html
+ #'shrinking':[True,False]
+ 'shrinking':[True]
+}
+
+#because NB has not any params
+param_grid_NB = {
+}
+
+
+#https://machinelearningmastery.com/start-with-gradient-boosting/
+#For Gradient  Boosting Algorithm
+param_grid_GB = {#'learning_rate': [0.1, 0.05, 0.02, 0.01],
+                  'learning_rate': [0.1, 0.2, 0.5, 1],
+                  #'max_depth': [3, 5, 8, 10],
+                  #'min_samples_leaf': [3, 5, 10, 12],
+                  'n_estimators' : [100],
+                  'random_state':  [0]
+              #'max_features': [1.0, 0.3, 0.1] 
+              }
+
+
+#For Gradient  Boosting Algorithm
+param_grid_AB = {#'learning_rate': [0.1, 0.05, 0.02, 0.01],
+                  'learning_rate': [0.1, 0.5, 1],
+                  #'max_depth': [3, 5, 8, 10],
+                  #'min_samples_leaf': [3, 5, 10, 12],
+                  'n_estimators' : [100],
+                   'random_state':  [0 ]
+              #'max_features': [1.0, 0.3, 0.1] 
+              }
+
+
+
+param_grid_MLP = {
+                'activation' :  ['identity', 'logistic', 'tanh', 'relu'],
+                'solver' : ['lbfgs', 'sgd', 'adam'],
+                'alpha': [0.001],
+                'batch_size': ['auto'],
+#                'batch_size': [20, 30, 40, 50],
+                'hidden_layer_sizes': [(1,),(2,),(3,),(4,),(5,),(6,),(7,),(8,),(9,),(10,),(11,), (12,),(13,),(14,),(15,),(16,),(17,),(18,),(19,),(20,),(21,)],
+                'max_iter': [200],
+                'tol' : [0.00001],
+                'verbose': [False],
+                'warm_start': [False]
+                }
+
+
+#For Gradient  KNN
+param_grid_KNN = {
+                'algorithm' : ['auto'], # {‘auto’, ‘ball_tree’, ‘kd_tree’, ‘brute’} how to find closest N samples. Best way is leaving AUTO
+                'n_neighbors' : [3,5,7,9,11, 13, 15, 17, 19], # most significant param. 
+                'weights': ['uniform'] # uniform (each sample has equal weight) vs. distance (if a sample is closer to test point than another, it has more weight)
+                }
+
+#For Logistic Regression
+#detailed info: https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_sample_weight.html
+param_grid_LR = {
+                'C' : [0.001, 0.01, 0.1, 1, 10], #regularization parm: there is a tradeoff between minimizing training error and test set accuracy. It can thought as similar with SVM regularization param
+                'class_weight' : ['balanced', None] #“balanced”, or None, optional. default is NONE which causes all class has equal weight. BALANCED leads minor class samples have more weight (might be thought as oversampling for minority classes)
+                }
+
+
+
+#Just split training and test set
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.3, random_state = 137)
+
+
+#ML Run Function
+#If just one model is tried to be run, just specify v_spec_model param with model_name in dict. If no param is given then all models will be run consecutively
+#If you want to use specific Naive Bayes Model other than MultinomialNB, you should specify v_NB with GaussianNB() or BernoulliNB()
+def run_ML_models (v_spec_model = None  , v_NB = MultinomialNB()):
+    
+    """
+    1.Gaussian NB: It should be used for features in decimal form. GNB assumes features to follow a normal distribution.
+    2.MultiNomial NB: It should be used for the features with discrete values like word count 1,2,3...
+    3.Bernoulli NB: It should be used for features with binary or boolean values like True/False or 0/1.
+    """
+    #select one of them according your dataset
+    NBClassifier = v_NB
+#    NBClassifier = MultinomialNB()
+#    NBClassifier = GaussianNB()
+#    NBClassifier = BernoulliNB()
+
+
+    dict_ML_models = {
+            'param_grids_list' : [param_grid_MLP,
+                                  param_grid_TREE,
+                                  param_grid_TREE, 
+                                  param_grid_SVM, 
+                                  param_grid_NB, 
+                                  param_grid_GB, 
+                                  param_grid_AB , 
+                                  param_grid_KNN , 
+                                  param_grid_LR 
+                                  ],
+            'model' : [MLPClassifier(),
+                       DecisionTreeClassifier(), 
+                       RandomForestClassifier(), 
+                       SVC(),  
+                       NBClassifier,
+                       GradientBoostingClassifier(), 
+                       AdaBoostClassifier(),  
+                       KNeighborsClassifier(),  
+                       LogisticRegression() 
+                       ],
+            'model_name' : ["MLPClassifier()",
+                            "DecisionTreeClassifier()", 
+                            "RandomForestClassifier()", 
+                            "SVC()",  
+                            "NaiveBayes()", 
+                            "GradientBoostingClassifier()", 
+                            "AdaBoostClassifier()",  
+                            "KNeighborsClassifier()",  
+                            "LogisticRegression()" 
+                            ]
+            }
+    
+    
+    if(np.logical_not ( len(dict_ML_models['param_grids_list']) == len(dict_ML_models['param_grids_list']) 
+                        and  
+                        len(dict_ML_models['param_grids_list']) == len(dict_ML_models['model_name']) 
+                       )
+      ):
+       raise ValueError('N OF ELEMENTS IN dict_ML_models inconsistent!!!')
+
+    #
+    #
+    #    #if you wanna a run just specific model, please pass its name to spec_model argument. Otherwise delete it.
+    #    spec_model = 'RandomForestClassifier()'
+    
+    for i in range(0, len(dict_ML_models['param_grids_list'])):
+        if v_spec_model != None and dict_ML_models['model_name'][i] == v_spec_model:
+            gridsearchCLF(dict_ML_models['param_grids_list'][i], dict_ML_models['model'][i], dict_ML_models['model_name'][i] )
+        elif v_spec_model == None :
+            gridsearchCLF(dict_ML_models['param_grids_list'][i], dict_ML_models['model'][i], dict_ML_models['model_name'][i] )
+        else:
+            print("no model hit! please check function parameters!!")
+  
+
+
+#the function is for performing all grid search operation with given parms, and shows model performance
+#with confusion matrix
+def gridsearchCLF(param_grid, clf_v, model_name_v ):
+    print("************************************************")
+    print("***************", model_name_v, "***************")
+    print("************************************************")
+    scores = ['precision_macro', 'recall_macro']
+    for score in scores:
+        start_time = datetime.now()
+        print( '## eval metric:',  score , '##')
+    
+#        clf = GridSearchCV(SVC(), tuned_parameters, cv=5,
+#                           scoring='%s_macro' % score)
+        
+        #clf = GridSearchCV(clf_v, param_grid, cv_v,  scoring = score)
+        if len(param_grid) != 0:
+            clf = GridSearchCV(clf_v, param_grid, cv = 5,  scoring = score)
+        else:
+            clf = clf_v
+                 
+        clf.fit(X_train, y_train)
+        
+        if len(param_grid) != 0:
+            print("Best parameters set found on development set:")
+            print('##', clf.best_params_ , '##')
+            print()
+#            print("Grid scores on development set:")
+#            print()
+#            means = clf.cv_results_['mean_test_score']
+#            stds = clf.cv_results_['std_test_score']
+#            for mean, std, params in zip(means, stds, clf.cv_results_['params']):
+#                print("%0.3f (+/-%0.03f) for %r"
+#                      % (mean, std * 2, params))
+            print("Detailed classification report: (from test set) ")
+            print()
+        y_true, y_pred = y_test, clf.predict(X_test)
+        print(classification_report(y_true, y_pred))
+        print("Confusion Matrix: ",  "\n",  confusion_matrix(y_test, y_pred)) 
+        end_time = datetime.now()
+        print("run is finished in " , str((end_time - start_time ).seconds), " seconds" )
+        print("-------*****------")
+        print()
+    #return clf.best_estimator_
+    
+
+#Classifiers calculate feature importance which can be shown basically as follows
+def featureImportanceGraph( clf_v ):
+    feature_imp = pd.Series(clf_v.feature_importances_, index=X.columns).sort_values(ascending=False)
+    #feature_imp = pd.Series(clf_v.feature_importances_, index=data_v.feature_names).sort_values(ascending=False)
+    sns.barplot(x=feature_imp, y=feature_imp.index)
+    # Add labels to your graph
+    plt.xlabel('Feature Importance Score')
+    plt.ylabel('Features')
+    plt.title("Visualizing Important Features")
+    plt.legend()
+    plt.show()
+
+
+#For detailed information behind the interpretability of ROC is explained in detailed from following:
+#https://towardsdatascience.com/understanding-auc-roc-curve-68b2303cc9c5    
+def ROCGraph(data_v, clf_v, title_v ):
+    y_pred_prob = clf_v.predict_proba(X_test)
+    #if it is a binary classification, then 1 value is reference point
+    #but if you have multiclass problem ROC curve becomes one vs. ALL graph. 
+    #one has to change y_pred_prob[:,1] according to reference class
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, y_pred_prob[:,1] ) 
+    plt.plot(fpr, tpr)
+    plt.xlim([-0.05, 1.1]) ##just for seeing line in case of perferct classifier alligns with Y axis
+    plt.ylim([-0.05, 1.1])
+    plt.rcParams['font.size'] = 12
+    plt.title('ROC curve for ' + title_v)
+    plt.xlabel('False Positive Rate (1 - Specificity)')
+    plt.ylabel('True Positive Rate (Sensitivity)')
+    plt.grid(True)
+    plt.show()
+
+
+## Visualize feature importance
+featureImportanceGraph(dfx, clf_final)
+
+## Visualize ROC Curve
+ROCGraph(dfx, clf_final, 'Whatever' )
