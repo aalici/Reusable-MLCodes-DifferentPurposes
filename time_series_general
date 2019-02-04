@@ -1,0 +1,244 @@
+
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima_model import ARIMA
+from scipy.stats import shapiro
+#dateparse = lambda dates: pd.datetime.strptime(str(dates), '%Y-%m')
+date_parser = lambda dates: pd.datetime.strptime(str(dates), '%Y%m%d')
+#data = pd.read_csv('AirPassengers.csv', parse_dates=['Month'], index_col='Month',date_parser=dateparse)
+data = pd.read_csv('trx_cnt.csv', delimiter=';', decimal=',')
+
+
+
+data['TRX_DT_F'] =  data['TRX_DT'].apply(date_parser)
+
+data = data.set_index(data['TRX_DT_F'])
+
+data = data.drop('TRX_DT', axis = 1)
+data = data.drop('TRX_DT_F', axis = 1)
+ts = data['CNT']
+
+
+
+ts = data['#Passengers']
+    
+#select only one row by passing index          
+ts['1949-01-01']
+
+#select all rows including same year like 1949
+ts['1949']
+
+
+#select all rows up to spefic year or time:
+ts[:'1959']
+ts[:'1959-01']
+
+
+#plot signal:
+plt.plot(ts)
+
+
+
+#function plots the graphs of given signal, moving avg/moving med/moving std
+#also it applies a hypothesis test of whether given signal is stationary or not. 
+#Null hypothesis is signal is non-stationary. So if p-value is smaller enough like < 0.05 than we can say that it is stationary
+def test_stationarity(timeseries):
+    
+    #Determing rolling statistics
+    rolmean = pd.rolling_mean(timeseries, window=12)
+    rolmed = pd.rolling_median(timeseries, window=12)
+    rolstd = pd.rolling_std(timeseries, window=12)
+
+    #Plot rolling statistics:
+    plt.figure(figsize=(10,10))
+    orig = plt.plot(timeseries, color='blue',label='Original')
+    mean = plt.plot(rolmean, color='red', label='Rolling Mean')
+    mean = plt.plot(rolmed, color='green', label='Rolling Median')
+    std = plt.plot(rolstd, color='black', label = 'Rolling Std')
+    plt.legend(loc='best') # add labels as legend
+    plt.title('Rolling Mean & Standard Deviation')
+    #plt.show(block=False)
+    plt.show()
+    
+    #Perform Dickey-Fuller test:
+    print ('Results of Dickey-Fuller Test:')
+    dftest = adfuller(timeseries, autolag='AIC')
+    dfoutput = pd.Series(dftest[0:4], index=['Test Statistic','p-value','#Lags Used','Number of Observations Used'])
+    for key,value in dftest[4].items():
+        dfoutput['Critical Value (%s)'%key] = value
+    print (dfoutput)
+
+
+#run test for stationarity
+test_stationarity(ts)
+get_decomposed_residual_signal(ts)
+
+
+"""
+There exist 3 popular method to make a signal as stationary. All methods will be figured out below
+    - Moving Average
+    - Differencing
+    -Time Series Decompositon
+    
+"""
+
+"""
+Though stationarity assumption is taken in many TS models, 
+almost none of practical time series are stationary. 
+So statisticians have figured out ways to make series stationary, 
+which we’ll discuss now. Actually, its almost impossible to make a series 
+perfectly stationary, but we try to take it as close as possible.
+Lets try to make it stationary
+"""
+
+########################
+#lets take log for decreasing dumping effect
+ts_log = np.log(ts)
+plt.plot(ts_log)
+
+
+ts_log_moving_avg_diff = ts_log - pd.rolling_median(ts_log, window=12)
+
+#since first 11 elements are NaN, we remove this tuples
+ts_log_moving_avg_diff = ts_log_moving_avg_diff.dropna()
+
+#test it
+test_stationarity(ts_log_moving_avg_diff)
+
+
+
+
+########################
+
+#recent data might have higher effect on trend compenent. 
+#so weighted avg might be used
+expwighted_avg = pd.ewma(ts_log, halflife=12)
+
+plt.plot(expwighted_avg, color='red')
+
+ts_log_moving_w_avg_diff = ts_log - expwighted_avg
+
+ts_log_moving_w_avg_diff = ts_log_moving_w_avg_diff.dropna()
+
+#test it
+test_stationarity(ts_log_moving_w_avg_diff)
+
+
+
+#################################
+"""
+Moving AVG/Median might not solve the issue in some cases.
+So anther method is DIFFERENCING
+X = x(t+1) - x(t)
+this may reduce trend effect
+"""
+
+ts_log_diff = ts_log - ts_log.shift() # one step shifted signals
+plt.plot(ts_log_diff)
+
+ts_log_diff = ts_log_diff.dropna()
+
+#test it
+test_stationarity(ts_log_diff)
+
+
+
+#################################
+"""
+Last Method to make signal as stationary is DECOMPOSING
+This splits signal into 3 parts:
+        -Trend part
+        -Seasonality part
+        -residual part
+then test residual signal to be stationary or not        
+"""
+
+#function applies decomposition on signal and returns just residual part
+#it also plot all parts of original signal
+#additive model is used for decomposition as default. But one can try "multiplicative" model also
+def get_decomposed_residual_signal (v_signal):
+    x1 = v_signal.index[np.arange(0, len(v_signal.index), 5)]
+    decomposition = seasonal_decompose(v_signal, freq= 7)
+    trend = decomposition.trend
+    seasonal = decomposition.seasonal
+    residual = decomposition.resid
+    plt.figure(figsize=(10,20))
+    plt.subplot(511)
+    plt.plot(v_signal, label='Original')
+    plt.legend(loc='best')
+    plt.xticks(x1
+       ,[str(i.month) + "/" + str(i.day) for i in x1]
+       ,rotation = 'vertical'
+      )
+    plt.subplot(512)
+    plt.plot(trend, label='Trend')
+    plt.legend(loc='best')
+    plt.xticks(x1
+       ,[str(i.month) + "/" + str(i.day) for i in x1]
+       ,rotation = 'vertical'
+      )
+    plt.subplot(513)
+    plt.plot(seasonal,label='Seasonality')
+    plt.legend(loc='best')
+    plt.xticks(x1
+       ,[str(i.month) + "/" + str(i.day) for i in x1]
+       ,rotation = 'vertical'
+      )
+    plt.subplot(514)
+    #markers_on = v_signal.index[10:15]
+    plt.plot(residual, label='Residuals')
+    plt.legend(loc='best')
+    plt.tight_layout()
+    plt.xticks(x1
+           ,[str(i.month) + "/" + str(i.day) for i in x1]
+           ,rotation = 'vertical'
+          )
+    residual = residual.dropna()
+    
+    plt.subplot(515)
+    plt.boxplot(residual)
+    plt.show()
+    
+    print("normality test, p-value: " , shapiro(residual)[1])
+    if shapiro(residual)[1] < 0.05:
+        print()
+        print("error shows normal distribution, so lets go on with std outlier")
+        outlier_series = pd.concat([ residual[residual > np.mean(residual) + (2*np.std(residual))],  residual[residual < np.mean(residual) - (2*np.std(residual))] ], axis = 0 )
+        print(outlier_series)
+    else:
+        print("error does not shows normal distribution, so lets go on with IQR outlier")
+        q25=np.percentile(residual, 25)
+        q75=np.percentile(residual, 75)
+        q75 + (1.5*(q75-q25))
+        outlier_series = pd.concat([ residual[residual > q75 + (1.5*(q75-q25))],  residual[residual < q25 - (1.5*(q75-q25))] ], axis = 0 )
+    
+        
+    ##plot original signal with outliers
+    if len(outlier_series > 0):
+        plt.figure(figsize=(20,10))
+        plt.plot(v_signal, label='Original')
+        plt.scatter(v_signal.index, v_signal, marker="x", color='b')
+        #plt.plot(v_signal[outlier_series.index], marker="o")
+        plt.scatter(outlier_series.index, v_signal[outlier_series.index], marker="o", color='r')
+        x1 = outlier_series.index
+        plt.xticks(x1
+                   ,[str(i.month) + "/" + str(i.day) for i in x1]
+                   ,rotation = 'vertical'
+          )
+        plt.grid(True)
+        plt.show()
+    
+    #return residual
+    
+
+#test it
+test_stationarity(get_decomposed_residual_signal (ts_log)   ) 
+
+
+##################################
+
+
+get_decomposed_residual_signal(ts)
+ 
+
+ 
