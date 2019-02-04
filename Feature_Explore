@@ -1,0 +1,199 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Dec 26 09:28:44 2018
+
+"""
+
+from matplotlib.backends.backend_pdf import PdfPages
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
+
+datax = datasets.load_breast_cancer() ## loads Boston dataset from datasets library 
+
+#You can see all data set list
+dir(datasets)
+
+#Should seperate target column from predictors. Otherwise model pretends to be seen as awesome:)
+X = pd.DataFrame(datax.data, columns=datax.feature_names)
+Y = pd.Series(datax.target)
+
+Y.values
+
+np.unique(Y, return_counts=True)
+
+pd.DataFrame(Y)  .count_values()
+
+df_main = X 
+
+pd.DataFrame(Y, columns = ['target'])
+
+df_main = X.join( pd.DataFrame(Y, columns = ['target']) )
+
+X = df_main[ GetFeatureDetails (X, 'target')['numeric']]
+Y = df_main[ GetFeatureDetails (df_main, 'target')['target']]
+
+
+X = StandardScaler().fit_transform(X)
+pca = PCA().fit(x_)
+
+# LDA
+sklearn_lda = LDA(n_components=2)
+sklearn_lda = LDA()
+#X_lda_sklearn = sklearn_lda.fit_transform(X, y)
+X_lda_sklearn = sklearn_lda.fit(X, Y)
+
+X_lda_sklearn.explained_variance_ratio_
+
+
+GetFeatureDetails (X, 'result')
+GetExploreFeatures(df_main, 'target')
+
+GetExploreFeatures
+
+DataFrame.plot() 
+
+
+#Get Numeric and Categoric Variables
+#It might be thought that only string variables are categorig, but what if you have a numeric variable which has only
+#4-5 different values in huge number of samples (It can be credit type represented in numeric lookup)
+#Below function assumes that even if a column is numeric, it can be treated as numeric if it takes less than v_cat_threshold values.
+def GetFeatureDetails (v_df, v_target_column, v_cat_threshold = 4):
+    
+    list_cat_columns = np.array([])
+    list_numeric_columns = np.array([])
+    dict_columns = {} 
+        
+    list_cat_columns = np.append(v_df.select_dtypes(include=[np.object]).columns.values , v_df.select_dtypes(include=[np.bool]).columns.values)
+    
+    
+    #print(list_cat_columns)
+    for i in v_df.select_dtypes(include=[np.number]).columns :
+        if len(v_df[i].value_counts()) <= v_cat_threshold:
+            list_cat_columns = np.append(list_cat_columns, i)
+        else:
+            if i != v_target_column:
+                list_numeric_columns = np.append(list_numeric_columns, i)
+    
+    #print(list_cat_columns)
+    list_cat_columns = list_cat_columns[list_cat_columns != v_target_column]
+    dict_columns['cat'] =  list_cat_columns
+    dict_columns['numeric'] =  list_numeric_columns
+    dict_columns['target'] =  v_target_column
+    return  dict_columns
+
+
+
+def GetExploreFeatures (v_df, v_target_column):
+    print(GetFeatureDetails (v_df, v_target_column)['numeric'])
+    
+    num_columns = GetFeatureDetails (v_df, v_target_column)['numeric']
+    num_columns = num_columns[num_columns != v_target_column]
+    
+    df_dummy = v_df[num_columns]
+    
+   
+    #PCA Prep#
+    x_ = StandardScaler().fit_transform(df_dummy)
+    pca = PCA().fit(x_)
+    
+    ##normalize DF columns
+    df_norm = pd.DataFrame(x_, columns = [x + "_norm" for x in num_columns])
+      
+    with PdfPages('foo1.pdf') as pdf:
+        for i in GetFeatureDetails (v_df, v_target_column)['numeric']:
+            fig = sns.boxplot(y=i, data=v_df)
+            pdf.savefig(fig.get_figure())
+            fig.get_figure().clear()
+            #######
+            fig = sns.distplot(v_df[i])
+            pdf.savefig(fig.get_figure())
+            fig.get_figure().clear()
+            #######
+            fig = sns.boxplot(x=v_target_column ,y=i, data=v_df)
+            pdf.savefig(fig.get_figure())
+            fig.get_figure().clear()
+         
+        ####CORRELATION MAP####    
+        fig = sns.heatmap(v_df[GetFeatureDetails (v_df, v_target_column)['numeric']].corr(),linecolor='white',linewidths=1) 
+        pdf.savefig(fig.get_figure())
+        fig.get_figure().clear()
+        
+        ####PCA MAP####
+        plt.figure(figsize=(3, 3))
+        plt.plot(np.cumsum(pca.explained_variance_ratio_))
+        plt.title('%Variance of PCs')
+        ax = plt.gca()
+        ax.grid(True, linestyle='--')
+        plt.xticks(np.arange(1, df_dummy.shape[1]+1, 3.0))
+        txt = 'DENEMEEE'
+        plt.text(0.05,0.95,txt, size=24)
+        pdf.savefig()  # saves the current figure into a pdf page
+        plt.close()
+      
+    ####ADD PC components to original data frame####    
+    cum_sum = 0
+    for i in range(0, len(pca.explained_variance_ratio_)):
+        cum_sum += pca.explained_variance_ratio_[i]
+        print(i, ' -- ', cum_sum)
+        if cum_sum >= 0.9:
+            break
+
+    d_ = { 'x': ['PC__'] * (i+1),
+          'y': np.arange(1,(i+2))
+          }
+    ##Principal Components are found and merged to original dataframe along axis = 1 
+    pca = PCA(n_components=i+1)
+    principalComponents = pca.fit_transform(x_)
+    #pd.DataFrame(principalComponents,columns= pd.DataFrame(d_)['x'].map(str) +  pd.DataFrame(d_)['y'].map(str))
+    #v_df = pd.concat(v_df, pd.DataFrame(principalComponents,columns= pd.DataFrame(d_)['x'].map(str) +  pd.DataFrame(d_)['y'].map(str)), axis=1, join='inner')        
+    v_df = v_df.join(pd.DataFrame(principalComponents,columns= pd.DataFrame(d_)['x'].map(str) +  pd.DataFrame(d_)['y'].map(str)) )
+    
+    
+    #LDA Prep#
+    sklearn_lda = LDA()
+    #X_lda_sklearn = sklearn_lda.fit_transform(X, y)
+    X_lda_sklearn = sklearn_lda.fit(x_, v_df[v_target_column])
+    
+    n_lda_components = LDA_Select_N_Components(X_lda_sklearn.explained_variance_ratio_ , 0.9)
+    ldaComponents = LDA(n_components = n_lda_components ).fit_transform(x_, v_df[v_target_column])
+    
+    d_ = {'x': ['LDA__'] * (n_lda_components),
+          'y': np.arange(1,(n_lda_components+1))
+          }
+    
+    v_df = v_df.join(pd.DataFrame(ldaComponents,columns= pd.DataFrame(d_)['x'].map(str) +  pd.DataFrame(d_)['y'].map(str)) )
+    v_df = v_df.join( df_norm) ## normalize edilmiş numeric kolonlar da data frame'e eklenir
+    
+    
+    return v_df         
+
+
+
+def LDA_Select_N_Components(var_ratio, goal_var: float):
+    # Set initial variance explained so far
+    total_variance = 0.0
+    
+    # Set initial number of features
+    n_components = 0
+    
+    # For the explained variance of each feature:
+    for explained_variance in var_ratio:
+        
+        # Add the explained variance to the total
+        total_variance += explained_variance
+        
+        # Add one to the number of components
+        n_components += 1
+        
+        # If we reach our goal level of explained variance
+        if total_variance >= goal_var:
+            # End the loop
+            break
+            
+    # Return the number of components
+    return n_components
+
+
+GetFeatureDetails (v_df, v_target_column, v_cat_threshold = 4)
