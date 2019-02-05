@@ -1,0 +1,116 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Dec 31 10:10:03 2018
+
+"""
+
+import scipy.stats as stats
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import pandas as pd, numpy as np, matplotlib.pyplot as plt
+
+x = np.random.normal(0, 5, 1000)
+
+y = np.random.normal(3, 2, 100)
+
+u = np.random.uniform(-5, 5, 100)
+
+stats.f_oneway(x, y)
+stats.ttest_ind(x, y)
+
+stats.normaltest(u)[1] ###data normal dağılıyor mu?
+stats.shapiro(u)[1] ###data normal dağılıyor mu?
+
+sns.distplot(x)
+
+plt.subplot(1,2, 1)
+sns.distplot(x)
+plt.subplot(1,2, 2)
+sns.distplot(y)
+
+
+
+
+X = np.unique(np.random.randint(1,7,1000),return_counts=True)
+
+X = np.random.randint(1,7,1000)
+Y_RANDOM = np.random.choice(["ILK", "ORT", "LIS"], 1000 , p= [0.3, 0.3, 0.4]) # verdiğim custom diziyi olasılık değerlerine göre random seçerek 20'lik bir set getir.
+
+conditions  = [ X == 1, 
+                X == 2, 
+                X == 3, 
+                X == 4, 
+                X == 5, 
+                X == 6
+              ]
+
+choices     = [ "ILK", "ILK", "ORT", "ORT", "LIS", "LIS" ]
+Y_DEPENDENT = np.select(conditions, choices, default="LIS")
+
+
+{'X' : X, 'Y': Y}
+
+#contingency table for random
+pd.crosstab(X, Y_RANDOM)
+
+#contingency table for dependent variables.
+pd.crosstab(X, Y_DEPENDENT)
+
+
+'''
+degrees of freedom (n-1)*(c-1) dir. 
+n=#row
+c=#columns
+tabi burdaki row ve column'lar contingency table için. Ana sample set için değil.
+Misal bizim örneğimizde :
+3 tane distinct Y (yani columns) alternatifi (ilk, ort,lis)
+6 tane distinct X (yani row) alternatifi (1,2,3,4,5,6)
+var --> (3-1)*(6-1) = 10
+
+'''
+
+'''
+AŞAĞIDAKİ RANDOM ATAMA, YANİ TAMAMEN Y ile X bağımsız.
+Burada beklediğimiz şey şu:
+NULL hipotezi 2 değişkenin bağımsız olduğunu söylüyor.
+eğer p< 0.05 ise NULL hipotezi çürür ve bunlar bağımlıdır deriz.
+Bu case için P> 0.05 bekliyoruz
+'''
+chi2_stat, p_val, dof, ex = stats.chi2_contingency(pd.crosstab(X, Y_RANDOM))
+print("===Chi2 Stat===")
+print(chi2_stat)
+print("\n")
+print("===Degrees of Freedom===")
+print(dof)
+print("\n")
+print("===P-Value===")
+print(p_val)
+print("\n")
+print("===Contingency Table===")
+print(ex)
+
+
+
+
+'''
+AŞAĞIDAKİ bağımlı ATAMA, YANİ TAMAMEN Y ile X bağımlı. zaten contingency table'dan da görülüyor çok net.
+Burada beklediğimiz şey şu:
+NULL hipotezi 2 değişkenin bağımsız olduğunu söylüyor.
+eğer p< 0.05 ise NULL hipotezi çürür ve bunlar bağımlıdır deriz.
+Bu case için P < 0.05 bekliyoruz
+'''
+chi2_stat, p_val, dof, ex = stats.chi2_contingency(pd.crosstab(X, Y_DEPENDENT))
+print("===Chi2 Stat===")
+print(chi2_stat)
+print("\n")
+print("===Degrees of Freedom===")
+print(dof)
+print("\n")
+print("===P-Value===")
+print(p_val)
+print("\n")
+print("===Contingency Table===")
+print(ex)
+
+
