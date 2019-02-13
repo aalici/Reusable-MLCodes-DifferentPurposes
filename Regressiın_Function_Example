@@ -1,0 +1,98 @@
+from numpy.random import seed
+from numpy.random import randn
+import seaborn as sns
+from sklearn.ensemble import RandomForestRegressor
+from sklearn import linear_model
+from sklearn import metrics
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+np.set_printoptions(suppress=True)
+
+
+'''
+FUNCTIONS
+'''
+
+###########
+#it just adds normalized columns into df
+#if points just specific cloumns, it only uses them.
+###########
+def add_normalize_components(v_df, v_target_column, v_list_of_num_columns):
+    if len(v_list_of_num_columns) == 0:
+        num_columns = GetFeatureDetails (v_df, v_target_column)['numeric']
+        num_columns = num_columns[num_columns != v_target_column]
+        df_dummy = v_df[num_columns]
+    else:
+        num_columns= v_list_of_num_columns
+        df_dummy = v_df[num_columns]
+    
+        #PCA Prep#
+    x_ = StandardScaler().fit_transform(df_dummy)
+        
+    ##normalize DF columns
+    #print(len(x_))
+    
+    df_norm = pd.DataFrame(x_, columns = [x + "_norm" for x in num_columns], index = v_df.index)
+    return v_df.join(df_norm)
+
+
+
+def run_regression_model(X, Y, p_param_grid = None, p_model = RandomForestRegressor()):
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.3, random_state = 137)    
+    v_model = p_model   
+    param_grid = p_param_grid
+    is_gridsearch = 0
+    
+    if len(param_grid) > 0:
+        is_gridsearch = 1
+    
+    print('TRY TO FIT.... PLEASE WAIT..')
+    if is_gridsearch == 1:
+        grid_Search_clf = GridSearchCV(v_model, param_grid, cv = 5)
+        grid_Search_clf.fit(X_train, y_train)  
+        v_model = grid_Search_clf
+    else:
+        v_model.fit(X_train, y_train)  
+        
+    
+    y_pred = v_model.predict(X_test)  
+    y_pred_s = pd.Series(y_pred, index = y_test.index)
+    
+    y_pred_train = v_model.predict(X_train)  
+    y_pred_train_s = pd.Series(y_pred_train, index = y_train.index)    
+    
+    #EVALUATION METRICS#
+    print()
+    print('Model TYPE:', v_model.__class__)  
+    print()
+    print('Mean Absolute Error:', metrics.mean_absolute_error(y_test, y_pred))  
+    print('Mean Squared Error:', metrics.mean_squared_error(y_test, y_pred))  
+    print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, y_pred)))  
+    print('R2 Error TEST:', metrics.r2_score(y_test, y_pred)) 
+    print('R2 Error TRAIN:', metrics.r2_score(y_pred_train, y_train)) 
+    
+    
+    
+    #PLOTS#
+    plt.figure(figsize=(20,10))
+    plt.plot(df_processed["TARGET"])
+    plt.scatter(y_pred_train_s.index, y_pred_train_s, marker="o", color='b', label = 'prediction_train')
+    plt.scatter(y_test.index, y_test, marker="x", color='r', label = 'test')
+    plt.scatter(y_pred_s.index, y_pred_s, marker="o", color='r',  label = 'prediction_test')
+    plt.title('My Plot Title')
+    #plt.plot(y_test, label='Original')
+    #plt.plot(y_pred, label='pred')
+    plt.legend(loc='best')
+    plt.grid(True)
+    plt.show()
+    
+    #RESIDUAL ERROR#
+    plt.figure()
+    sns.distplot(y_pred_s - y_test)
+    plt.title('RESIDUAL Histogram')
+    plt.show()
+    
+    if is_gridsearch == 0:
+        featureImportanceGraph(v_model, X)
