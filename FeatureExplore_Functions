@@ -1,19 +1,47 @@
+   
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
+from collections import Counter 
+  
 
+
+def get_var_category(series):
+    unique_count = series.nunique(dropna=False)
+    total_count = len(series)
+    if pd.api.types.is_numeric_dtype(series):
+        return 'Numerical'
+    elif pd.api.types.is_datetime64_dtype(series):
+        return 'Date'
+    elif unique_count==total_count:
+        return 'Text (Unique)'
+    else:
+        return 'Categorical'
+
+def print_categories(df):
+    for column_name in df.columns:
+        print(column_name, ": ", get_var_category(df[column_name]))
+
+
+
+def most_frequent(List): 
+    occurence_count = Counter(List) 
+    return occurence_count.most_common(1)[0][0]
+
+
+# Create table for missing data analysis
 def draw_missing_data_table(df):
     '''
-    it takes a dataframe, and returns a basic report of all columns being null or not
+    Just Pass Data_Frame, it returns all columns being Null Or Not ratio as a new data frame
     '''
     total = df.isnull().sum().sort_values(ascending=False)
     percent = (df.isnull().sum()/df.isnull().count()).sort_values(ascending=False)
     missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
     return missing_data
-    
 
 
-def get_grouped_data(input_data, feature, target_col, bins, cuts=0):
+
+def get_grouped_data(input_data, feature, target_col, bins, cuts = []):
     """
     Bins continuous features into equal sample size buckets and returns the target mean in each bucket. Separates out
     nulls into another bucket.
@@ -30,8 +58,8 @@ def get_grouped_data(input_data, feature, target_col, bins, cuts=0):
         input_data = input_data[~pd.isnull(input_data[feature])]
         input_data.reset_index(inplace=True, drop=True)
 
-    is_train = 0
-    if cuts == 0:
+    is_train = 1
+    if len(cuts) == 0:
         is_train = 1
         prev_cut = min(input_data[feature]) - 1
         cuts = [prev_cut]
@@ -46,8 +74,10 @@ def get_grouped_data(input_data, feature, target_col, bins, cuts=0):
 
         # if reduced_cuts>0:
         #     print('Reduced the number of bins due to less variation in feature')
+        print(cuts, ' if get_grouped_data')
         cut_series = pd.cut(input_data[feature], cuts)
     else:
+        print(cuts, ' else get_grouped_data')
         cut_series = pd.cut(input_data[feature], cuts)
 
     grouped = input_data.groupby([cut_series], as_index=True).agg(
@@ -77,8 +107,11 @@ def get_grouped_data(input_data, feature, target_col, bins, cuts=0):
 
     grouped[feature] = grouped[feature].astype('str').astype('category')
     if is_train == 1:
+        print(cuts, ' ........***++++++***')
         return (cuts, grouped)
+        print(cuts, ' ........***00***')
     else:
+        print(cuts, ' ........***xxxx***')
         return (grouped)
 
 
@@ -93,7 +126,7 @@ def draw_plots(input_data, feature, target_col, trend_correlation=None):
     """
     trend_changes = get_trend_changes(grouped_data=input_data, feature=feature, target_col=target_col)
     plt.figure(figsize=(12, 5))
-    ax1 = plt.subplot(1, 2, 1)
+    ax1 = plt.subplot(1, 2, 2)
     ax1.plot(input_data[target_col + '_mean'], marker='o')
     ax1.set_xticks(np.arange(len(input_data)))
     ax1.set_xticklabels((input_data[feature]).astype('str'))
@@ -110,7 +143,7 @@ def draw_plots(input_data, feature, target_col, trend_correlation=None):
     ax1.text(0.05, 0.95, comment, fontsize=12, verticalalignment='top', bbox=props, transform=ax1.transAxes)
     plt.title('Average of ' + target_col + ' wrt ' + feature)
 
-    ax2 = plt.subplot(1, 2, 2)
+    ax2 = plt.subplot(1, 2, 1)
     ax2.bar(np.arange(len(input_data)), input_data['Samples_in_bin'], alpha=0.5)
     ax2.set_xticks(np.arange(len(input_data)))
     ax2.set_xticklabels((input_data[feature]).astype('str'))
@@ -176,7 +209,7 @@ def get_trend_correlation(grouped, grouped_test, feature, target_col):
     return (trend_correlation)
 
 
-def univariate_plotter(feature, data, target_col, bins=10, data_test=0):
+def univariate_plotter(feature, data, target_col, bins=10, data_test=0, v_cuts = []):
     """
     Calls the draw plot function and editing around the plots
     :param feature: feature column name
@@ -190,7 +223,10 @@ def univariate_plotter(feature, data, target_col, bins=10, data_test=0):
     if data[feature].dtype == 'O':
         print('Categorical feature not supported')
     else:
-        cuts, grouped = get_grouped_data(input_data=data, feature=feature, target_col=target_col, bins=bins)
+        cuts, grouped = get_grouped_data(input_data=data, feature=feature, target_col=target_col, bins=bins, cuts = v_cuts)
+        if len(v_cuts) > 0:
+            cuts = v_cuts
+        print(cuts, 'univariate_plotter')
         has_test = type(data_test) == pd.core.frame.DataFrame
         if has_test:
             grouped_test = get_grouped_data(input_data=data_test.reset_index(drop=True), feature=feature,
@@ -213,7 +249,7 @@ def univariate_plotter(feature, data, target_col, bins=10, data_test=0):
             return (grouped)
 
 
-def get_univariate_plots(data, target_col, features_list=0, bins=10, data_test=0):
+def get_univariate_plots(data, target_col, features_list=0, bins=10, data_test=0, v_cuts = []):
     """
     Creates univariate dependence plots for features in the dataset
     :param data: dataframe containing features and target columns
@@ -221,6 +257,7 @@ def get_univariate_plots(data, target_col, features_list=0, bins=10, data_test=0
     :param features_list: by default creates plots for all features. If list passed, creates plots of only those features.
     :param bins: number of bins to be created from continuous feature
     :param data_test: test data which has to be compared with input data for correlation
+    :param v_cuts: if oner wants to make his/her own bins, then it should be passed like [18,28,30,40]
     :return: Draws univariate plots for all columns in data
     """
     if type(features_list) == int:
@@ -231,7 +268,7 @@ def get_univariate_plots(data, target_col, features_list=0, bins=10, data_test=0
         if cols != target_col and data[cols].dtype == 'O':
             print(cols + ' is categorical. Categorical features not supported yet.')
         elif cols != target_col and data[cols].dtype != 'O':
-            univariate_plotter(feature=cols, data=data, target_col=target_col, bins=bins, data_test=data_test)
+            univariate_plotter(feature=cols, data=data, target_col=target_col, bins=bins, data_test=data_test, v_cuts = v_cuts )
 
 
 def get_trend_stats(data, target_col, features_list=0, bins=10, data_test=0):
