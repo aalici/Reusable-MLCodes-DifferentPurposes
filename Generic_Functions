@@ -1,0 +1,372 @@
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import roc_curve, precision_recall_curve, roc_auc_score, accuracy_score, classification_report, \
+    confusion_matrix, precision_recall_curve, auc, make_scorer, recall_score, precision_score
+import warnings
+warnings.filterwarnings("ignore")
+###for oracle connections###
+import os
+import cx_Oracle as cx_Oracle
+#####
+import time
+from statsmodels.stats.stattools import medcouple
+import scipy.stats as stats
+#####
+import pickle   
+
+
+def f_pickle_dump(v_file_name, v_tuple):
+    pickle.dump( v_tuple, open( v_file_name, "wb" ) )
+    
+
+def f_pickle_load(v_file_name):
+    return pickle.load( open( v_file_name, "rb" ) )   
+    
+
+# Write pandas.DataFrame object to an excel file.
+def write_to_excel_file_by_pandas(excel_file_path, data_frame, sheet_name = "data"):
+    '''
+    excel_file_path: D:\users\abcd\excel1.xlsx
+    data_frame : name of dataframe that wants to be exported
+    sheet_name
+    '''
+    excel_writer = pd.ExcelWriter(excel_file_path, engine='xlsxwriter')
+    data_frame.to_excel(excel_writer, sheet_name)
+    excel_writer.save()
+    print(excel_file_path + ' has been created.')   
+    
+
+
+def f_get_upperlower_limits_IQR (v_series, v_iqr_multiplier = 1.5):
+    '''
+    v_series : it has to be time series with value column as numeric
+    v_iqr_multiplier : it is IQR multiplier. Default value=1.5
+    it returns lower and upper limits wrt to IQR
+    '''
+    q3 = np.quantile(v_series, 0.75)   
+    q1 = np.quantile(v_series, 0.25)
+    IQR = q3-q1
+    upper = q3 + (v_iqr_multiplier * IQR)
+    lower = q1 - (v_iqr_multiplier * IQR)
+    return lower, upper
+
+
+def f_get_upperlower_limits_IQR_MC (v_series):
+    '''
+    it just takes series and returns MC, upper and lower limits wrt medcouple IQR method
+    #v_tolerance =           Q1     Q3
+                    x < 0    -3     4
+                    x > 0    -4     3
+    v_tolerance = [[-3, 4],[-4,3]]
+    '''
+    if len(v_series) > 30000:
+        v_series = v_series.sample(30000)
+    
+    MC = medcouple(v_series)
+    q3 = np.quantile(v_series, 0.75)   
+    q1 = np.quantile(v_series, 0.25)
+    IQR = q3-q1
+    
+    if MC <= 0:
+        lower =  q1 - (1.5 * np.exp(-3*MC) * IQR)        
+        upper =  q3 + (1.5 * np.exp(4*MC) * IQR)        
+    else:
+        lower =  q1 - (1.5 * np.exp(-4*MC) * IQR)        
+        upper =  q3 + (1.5 * np.exp(3*MC) * IQR)        
+    
+    return MC, lower, upper
+
+
+
+#v_df as timeseries. like ( f_plot_hist(data_df["VAL"], 100) )
+def f_plot_hist(v_df, v_binsize = 20, v_title = None):
+    '''
+    just pass series to this function, it shows histogram
+    '''
+    plt.figure(figsize=(10,10))
+    sns.set_style("whitegrid")
+    plot_data = v_df
+    plot_data.hist(bins=v_binsize)
+    #sns.distplot( plot_data)
+    plt.xticks(np.linspace(np.min(plot_data),np.max(plot_data),v_binsize), rotation=45)
+    if v_title is not None:
+        plt.title(v_title)
+    plt.show()
+    
+
+def f_plot_seaborn_barplot(v_df, v_x , v_hue = None, v_xticks_rotation = 45, v_title = None):
+    '''
+    v_df: dataframe
+    v_x: x1 axis dimension, should be categorical
+    v_hue: x2 axis dimension, should be categorical (it might be null)
+    it d
+    '''
+    plt.figure(figsize=(10,10))
+    
+    g=sns.countplot(data=v_df,
+                  x = v_x,
+                  hue= None if v_hue == None else v_hue,
+                  order=v_df[v_x].value_counts().index
+                  )
+    
+    for item in g.get_xticklabels():
+        item.set_rotation(45 if v_xticks_rotation is None else v_xticks_rotation)
+        
+    for i in g.patches:
+        g.text(i.get_x()+0.1 # x ekseninde nerde
+               ,0 if np.isnan(i.get_height()) == True else i.get_height()+0.2     # y ekseninde nerde
+               ,str(0 if np.isnan(i.get_height()) == True else i.get_height())
+               , fontsize=10
+               ,color='dimgrey')
+    
+    g.legend(loc="upper right")
+    
+    if v_title is not None:
+      plt.title(v_title)  
+
+
+
+def f_plot_bar_series(v_series
+                    , v_bar_tp = 'bar'
+                    , v_color = "blue"
+                    , v_title = None 
+                    , v_xlabel = None
+                    , v_show_percent = True
+                    ):
+    '''
+    v_series: Must be series.like:
+                      Man 1000
+                      Woman 3000
+              Also it has to be already grouped by object       
+    '''
+    if v_bar_tp == 'bar':
+    
+        ax = v_series.plot(kind=v_bar_tp
+                           ,figsize=(10,15)
+                           ,color=v_color
+                           ,fontsize=13);
+        ax.set_alpha(0.8)
+        if v_title is not None:
+            ax.set_title(v_title, fontsize=12)
+        
+        if v_xlabel is not None:         
+            ax.set_xlabel(v_xlabel, fontsize=10);
+        #ax.set_xticks([0, 5, 10, 15, 20])
+        
+        # create a list to collect the plt.patches data
+        totals = []
+        
+        # find the values and append to list
+        for i in ax.patches:
+            totals.append(i.get_height())
+        
+        # set individual bar lables using above list
+        total = sum(totals)
+        
+        # set individual bar lables using above list
+        for i in ax.patches:
+            # get_width pulls left or right; get_y pushes up or down
+            if v_show_percent == True:
+                x_text = str(i.get_width()) +  ' (' + str(round((i.get_width()/float(total))*100, 2)) +'%)'
+            else:
+                x_text = str(i.get_width()) 
+            ax.text(i.get_x()+0.1 # x ekseninde nerde
+                   ,i.get_height()+0.2     # y ekseninde nerde
+                   ,x_text
+                   , fontsize=15
+                   ,color='dimgrey')  
+       
+    if v_bar_tp == 'barh':    
+        ax = v_series.plot(kind=v_bar_tp
+                           ,figsize=(10,10)
+                           ,color=v_color
+                           ,fontsize=13);
+        ax.set_alpha(0.8)
+        if v_title is not None:
+            ax.set_title(v_title, fontsize=12)
+        
+        if v_xlabel is not None:         
+            ax.set_xlabel(v_xlabel, fontsize=10);
+        #ax.set_xticks([0, 5, 10, 15, 20])
+        
+        # create a list to collect the plt.patches data
+        totals = []
+        
+        # find the values and append to list
+        for i in ax.patches:
+            totals.append(i.get_width())
+        
+        # set individual bar lables using above list
+        total = sum(totals)
+        
+        # set individual bar lables using above list
+        for i in ax.patches:
+            # get_width pulls left or right; get_y pushes up or down
+            if v_show_percent == True:
+                x_text = str(i.get_width()) +  ' (' + str(round((i.get_width()/float(total))*100, 2)) +'%)'
+            else:
+                x_text = str(i.get_width()) 
+            ax.text(i.get_width()+ 0.1 # x ekseninde nerde
+                   ,i.get_y()+0.2     # y ekseninde nerde
+#                   ,str(i.get_width()) + ' (' + str(round((i.get_width()/float(total))*100, 2)) +'%)'
+                   ,x_text
+                   , fontsize=15
+                   ,color='dimgrey')     
+    
+
+
+def f_generate_bin_by_percents(v_series, v_num_of_bins):
+    '''
+    v_series: series wants to be seperated into bins
+    v_num_of_bins: number of bins that user wants to have. It should be divided to 1!! For example num_of 3 bins is not valid
+    Returns: List of bins
+    '''
+    inc = 1.0 / v_num_of_bins
+    start_quantile = 0
+    list_bin = []
+    for i in range(v_num_of_bins+1):
+        list_bin.append(np.quantile(v_series, start_quantile))
+        start_quantile = start_quantile + inc
+    return list_bin    
+
+
+
+def f_apply_chisquare_test (v1_series, v2_series):
+    '''
+    v1_series: first categoric series
+    v2_series: second categoric series
+    it returns chi square test results and brief explanation.
+    '''
+    print("\n") 
+    np.random.seed(200) 
+#    cont_matrix = np.sqrt( pd.crosstab(v1_series , v2_series) )
+    cont_matrix = pd.crosstab(v1_series , v2_series)
+    chi2_stat, p_val, dof, ex = stats.chi2_contingency(cont_matrix)
+    prob = 0.95
+    critical = stats.chi2.ppf(prob, dof)
+    
+    df_delta = pd.DataFrame(data=np.round( ((cont_matrix.values - ex) / ex) * 100 , 2), columns= cont_matrix.columns, index = cont_matrix.index ) 
+
+    for col in cont_matrix.columns:
+        df_delta[col] =  df_delta[col].apply(lambda x: str(x) + '%')
+    
+    print("===Real Values===")
+    print(cont_matrix)
+    
+    print("\n")
+    
+    print("===Exp Values===")
+    print(pd.DataFrame(data=ex, columns= cont_matrix.columns, index = cont_matrix.index ) )
+    
+    print("\n")
+    
+    print("===Delta Values===")
+    print(df_delta)
+    
+    print("\n")
+    
+    print("===Chi2 Stat===")
+    print(chi2_stat)
+    print("\n")
+    print("===Critical===")
+    print(critical)
+    print("\n")
+    print("===Degrees of Freedom===")
+    print(dof)
+    print("\n")
+    print("===P-Value===")
+    print(p_val)
+    print("\n")
+        
+    print("NULL Hypothesis says that: they are independent. So if p<0.05 then we can say they depend on each other")
+    print("NULL Hypothesis says that: they are independent. So if chi2_stat>=critical then we can say they depend on each other")
+    
+    print("\n")
+    
+   
+    if p_val < 0.05:
+        print("***** Result is: They Depend on each other with 95% confidence level")
+    else:
+        print("***** Result is: They Don't Depend on each other with 95% confidence level")
+
+    print("\n")    
+    
+    if abs(chi2_stat) >= critical:
+        print("***** Result is: They Depend on each other according to stats")
+    else:
+        print("***** Result is: They Don't Depend on each other according to stats")        
+    
+    
+
+
+def f_create_newbins_of_percent(v_dfx, v_percent):
+    '''
+    v_dfx: series just index for dimension and metric
+    v_percent: cutting percentage point (like 95)
+    it returns a tuple:
+        [0] = a list showing cutting points
+        [1] = new series of which metric column is replaced by cutting points
+    If one wants to cut immediately decreased population at a specific threshold like:
+                  percent  cumulative percent
+        0 trx --> %60      %60
+        1 trx --> %30      %90
+        2 trx --> %3       %93
+        3 trx --> %2       %95
+        4 trx --> %0.5     %95.5
+        5 trx --> %0.4     %95.9
+        6 trx --> %0.2     %96.1
+        7 trx --> %0.1     %96.2
+        ........................
+    function just cuts data at desired percentage. 
+    For instance if you want +95%:
+        count column replaced with the values of (0, 1, 2, 3+) for this example
+    For instance if you want +90%:
+        count column replaced with the values of (0, 1+) for this example
+        
+        
+    '''
+    
+    v_df = v_dfx.copy()
+    
+    tot_length = len(v_df)
+
+    df_val_counts = pd.DataFrame(v_df[v_df.columns[0]].value_counts())
+    df_val_counts.reset_index( inplace=True)
+    
+    v_list = []
+    for i in df_val_counts.index.unique():
+        if float(len(v_df[v_df[v_df.columns[0]] <= int(i)])) / tot_length >= float(v_percent) / 100:
+            v_list.append(i )
+            break;
+        v_list.append(i)
+    
+    v_df[v_df.columns[0]] = v_df[v_df.columns[0]].apply(lambda x: str(v_list[-1]) + '+' if x >= v_list[-1] else str(x))  
+    
+    
+    return v_list,  v_df
+
+    
+
+
+def f_create_test_table(v_clf, X_test, y_test):
+    '''
+    v_clf: classifier
+    Function prints confusion matrix, and classification report
+    Returns test table
+    '''
+    y_true, y_pred, y_pred_prob = y_test, v_clf.predict(X_test),  v_clf.predict_proba(X_test)
+    print(classification_report(y_true, y_pred))
+    print(confusion_matrix(y_true, y_pred))
+    col_0 = str(v_clf.classes_[0]) + "_Prob"
+    col_1 = str(v_clf.classes_[1]) + "_Prob"
+    test_table = pd.DataFrame(data = y_pred_prob, columns = [col_0, col_1], index = X_test.index)
+    test_table["Pred"] = y_pred
+    test_table["Real"] = y_test
+    return test_table
+
+    
