@@ -1,3 +1,385 @@
+   
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+from collections import Counter 
+import math
+import seaborn as sns
+
+  
+
+
+def get_var_category(series):
+    '''
+    '''
+    unique_count = series.nunique(dropna=False)
+    total_count = len(series)
+    if pd.api.types.is_numeric_dtype(series):
+        if unique_count <= 10:
+            return 'Numerical - Ordinal' + ' -->' +   str(unique_count)
+        else:
+            return 'Numerical'
+    elif pd.api.types.is_datetime64_dtype(series):
+        return 'Date'
+    elif unique_count==total_count:
+        return 'Text (Unique)'
+    else:
+        return 'Categorical'
+
+def print_categories(df, column_type = "Numerical"):
+    spec_column_list = []
+    for column_name in df.columns:
+        print(column_name, ": ", get_var_category(df[column_name]))
+        if get_var_category(df[column_name]) ==  column_type:
+            spec_column_list.append(column_name)
+    return  spec_column_list
+            
+        
+
+
+def f_get_columntypes(df):
+    '''
+    just pass dataframe it returns a dictionary in which columns are placed with the key of: 
+        'NUMERIC_ORDER'
+        'NUMERIC'
+        'DATE'
+        'TEXT'
+        'CATEGORY'
+    '''
+    list_num_ord = []
+    list_num = []
+    list_date = [] 
+    list_text = []
+    list_cat = []
+    for column_name in df.columns:
+        series = df[column_name]
+        unique_count = series.nunique(dropna=False)
+        total_count = len(series)
+        if pd.api.types.is_numeric_dtype(series):
+            if unique_count <= 10:
+                ss = series.unique()
+                ss.sort()
+                print( column_name + "-->" + str(ss))
+                list_num_ord.append(column_name)
+            else:
+                list_num.append(column_name)
+        elif pd.api.types.is_datetime64_dtype(series):
+            list_date.append(column_name)
+        elif unique_count==total_count:
+            list_text.append(column_name)
+        else:
+            ss = series.unique()
+            ss.sort()
+            print( column_name + "-->" + str(ss))
+            list_cat.append(column_name)
+    v_dict = { 'NUMERIC_ORDER' : list_num_ord,
+               'NUMERIC': list_num,
+               'DATE' : list_date,
+               'TEXT' :list_text,
+               'CATEGORY' : list_cat
+            }
+    return v_dict    
+        
+
+def most_frequent(List): 
+    occurence_count = Counter(List) 
+    return occurence_count.most_common(1)[0][0]
+
+
+# Create table for missing data analysis
+def draw_missing_data_table(df):
+    '''
+    Just Pass Data_Frame, it returns all columns being Null Or Not ratio as a new data frame
+    '''
+    total = df.isnull().sum().sort_values(ascending=False)
+    percent = (df.isnull().sum()/df.isnull().count()).sort_values(ascending=False)
+    missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
+    return missing_data
+
+
+#################################################################################
+########LOWER SIDE IS TARGET BASED NUMERIC FEATURE ANALYSIS ONLY#################
+#################################################################################    
+
+def get_grouped_data(input_data, feature, target_col, bins, cuts = []):
+    """
+    Bins continuous features into equal sample size buckets and returns the target mean in each bucket. Separates out
+    nulls into another bucket.
+    :param input_data: dataframe containg features and target column
+    :param feature: feature column name
+    :param target_col: target column
+    :param bins: Number bins required
+    :param cuts: if buckets of certain specific cuts are required. Used on test data to use cuts from train.
+    :return: If cuts are passed only grouped data is returned, else cuts and grouped data is returned
+    """
+    has_null = pd.isnull(input_data[feature]).sum() > 0
+    if has_null == 1:
+        data_null = input_data[pd.isnull(input_data[feature])]
+        input_data = input_data[~pd.isnull(input_data[feature])]
+        input_data.reset_index(inplace=True, drop=True)
+
+    is_train = 1
+    if len(cuts) == 0:
+        is_train = 1
+        prev_cut = min(input_data[feature]) - 1
+        cuts = [prev_cut]
+        reduced_cuts = 0
+        for i in range(1, bins + 1):
+            next_cut = np.percentile(input_data[feature], i * 100 / bins)
+            if next_cut > prev_cut + .000001:  # float numbers shold be compared with some threshold!
+                cuts.append(next_cut)
+            else:
+                reduced_cuts = reduced_cuts + 1
+            prev_cut = next_cut
+
+        # if reduced_cuts>0:
+        #     print('Reduced the number of bins due to less variation in feature')
+        print(cuts, ' if get_grouped_data')
+        cut_series = pd.cut(input_data[feature], cuts)
+    else:
+        print(cuts, ' else get_grouped_data')
+        cut_series = pd.cut(input_data[feature], cuts)
+
+    grouped = input_data.groupby([cut_series], as_index=True).agg(
+        {target_col: [np.size, np.mean], feature: [np.mean]})
+    grouped.columns = ['_'.join(cols).strip() for cols in grouped.columns.values]
+    grouped[grouped.index.name] = grouped.index
+    grouped.reset_index(inplace=True, drop=True)
+    grouped = grouped[[feature] + list(grouped.columns[0:3])]
+    grouped = grouped.rename(index=str, columns={target_col + '_size': 'Samples_in_bin'})
+    grouped = grouped.reset_index(drop=True)
+    corrected_bin_name = '[' + str(min(input_data[feature])) + ', ' + str(grouped.loc[0, feature]).split(',')[1]
+    grouped[feature] = grouped[feature].astype('category')
+    grouped[feature] = grouped[feature].cat.add_categories(corrected_bin_name)
+    grouped.loc[0, feature] = corrected_bin_name
+
+    if has_null == 1:
+        grouped_null = grouped.loc[0:0, :].copy()
+        grouped_null[feature] = grouped_null[feature].astype('category')
+        grouped_null[feature] = grouped_null[feature].cat.add_categories('Nulls')
+        grouped_null.loc[0, feature] = 'Nulls'
+        grouped_null.loc[0, 'Samples_in_bin'] = len(data_null)
+        grouped_null.loc[0, target_col + '_mean'] = data_null[target_col].mean()
+        grouped_null.loc[0, feature + '_mean'] = np.nan
+        grouped[feature] = grouped[feature].astype('str')
+        grouped = pd.concat([grouped_null, grouped], axis=0)
+        grouped.reset_index(inplace=True, drop=True)
+
+    grouped[feature] = grouped[feature].astype('str').astype('category')
+    if is_train == 1:
+        print(cuts, ' ........***++++++***')
+        return (cuts, grouped)
+        print(cuts, ' ........***00***')
+    else:
+        print(cuts, ' ........***xxxx***')
+        return (grouped)
+
+
+def draw_plots(input_data, feature, target_col, trend_correlation=None):
+    """
+    Draws univariate dependence plots for a feature
+    :param input_data: grouped data contained bins of feature and target mean.
+    :param feature: feature column name
+    :param target_col: target column
+    :param trend_correlation: correlation between train and test trends of feature wrt target
+    :return: Draws trend plots for feature
+    """
+    trend_changes = get_trend_changes(grouped_data=input_data, feature=feature, target_col=target_col)
+    plt.figure(figsize=(12, 5))
+    ax1 = plt.subplot(1, 2, 2)
+    ax1.plot(input_data[target_col + '_mean'], marker='o')
+    ax1.set_xticks(np.arange(len(input_data)))
+    ax1.set_xticklabels((input_data[feature]).astype('str'))
+    plt.xticks(rotation=45)
+    ax1.set_xlabel('Bins of ' + feature)
+    ax1.set_ylabel('Average of ' + target_col)
+    comment = "Trend changed " + str(trend_changes) + " times"
+    if trend_correlation == 0:
+        comment = comment + '\n' + 'Correlation with train trend: NA'
+    elif trend_correlation != None:
+        comment = comment + '\n' + 'Correlation with train trend: ' + str(int(trend_correlation * 100)) + '%'
+
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.3)
+    ax1.text(0.05, 0.95, comment, fontsize=12, verticalalignment='top', bbox=props, transform=ax1.transAxes)
+    plt.title('Average of ' + target_col + ' wrt ' + feature)
+
+    ax2 = plt.subplot(1, 2, 1)
+    ax2.bar(np.arange(len(input_data)), input_data['Samples_in_bin'], alpha=0.5)
+    ax2.set_xticks(np.arange(len(input_data)))
+    ax2.set_xticklabels((input_data[feature]).astype('str'))
+    plt.xticks(rotation=45)
+    ax2.set_xlabel('Bins of ' + feature)
+    ax2.set_ylabel('Bin-wise sample size')
+    plt.title('Samples in bins of ' + feature)
+    plt.tight_layout()
+    plt.show()
+
+
+def get_trend_changes(grouped_data, feature, target_col, threshold=0.03):
+    """
+    Calculates number of times the trend of feature wrt target changed direction.
+    :param grouped_data: grouped dataset
+    :param feature: feature column name
+    :param target_col: target column
+    :param threshold: minimum % difference required to count as trend change
+    :return: number of trend chagnes for the feature
+    """
+    grouped_data = grouped_data.loc[grouped_data[feature] != 'Nulls', :].reset_index(drop=True)
+    target_diffs = grouped_data[target_col + '_mean'].diff()
+    target_diffs = target_diffs[~np.isnan(target_diffs)].reset_index(drop=True)
+    max_diff = grouped_data[target_col + '_mean'].max() - grouped_data[target_col + '_mean'].min()
+    target_diffs_mod = target_diffs.fillna(0).abs()
+    low_change = target_diffs_mod < threshold * max_diff
+    target_diffs_norm = target_diffs.divide(target_diffs_mod)
+    target_diffs_norm[low_change] = 0
+    target_diffs_norm = target_diffs_norm[target_diffs_norm != 0]
+    target_diffs_lvl2 = target_diffs_norm.diff()
+    changes = target_diffs_lvl2.fillna(0).abs() / 2
+    tot_trend_changes = int(changes.sum()) if ~np.isnan(changes.sum()) else 0
+    return (tot_trend_changes)
+
+
+def get_trend_correlation(grouped, grouped_test, feature, target_col):
+    """
+    Calculates correlation between train and test trend of feature wrt target.
+    :param grouped: train grouped data
+    :param grouped_test: test grouped data
+    :param feature: feature column name
+    :param target_col: target column name
+    :return: trend correlation between train and test
+    """
+    grouped = grouped[grouped[feature] != 'Nulls'].reset_index(drop=True)
+    grouped_test = grouped_test[grouped_test[feature] != 'Nulls'].reset_index(drop=True)
+
+    if grouped_test.loc[0, feature] != grouped.loc[0, feature]:
+        grouped_test[feature] = grouped_test[feature].cat.add_categories(grouped.loc[0, feature])
+        grouped_test.loc[0, feature] = grouped.loc[0, feature]
+    grouped_test_train = grouped.merge(grouped_test[[feature, target_col + '_mean']], on=feature, how='left',
+                                       suffixes=('', '_test'))
+    nan_rows = pd.isnull(grouped_test_train[target_col + '_mean']) | pd.isnull(
+        grouped_test_train[target_col + '_mean_test'])
+    grouped_test_train = grouped_test_train.loc[~nan_rows, :]
+    if len(grouped_test_train) > 1:
+        trend_correlation = np.corrcoef(grouped_test_train[target_col + '_mean'],
+                                        grouped_test_train[target_col + '_mean_test'])[0, 1]
+    else:
+        trend_correlation = 0
+        print("Only one bin created for " + feature + ". Correlation can't be calculated")
+
+    return (trend_correlation)
+
+
+
+def univariate_plotter(feature, data, target_col, bins=10, data_test=0, v_cuts = []):
+    """
+    Calls the draw plot function and editing around the plots
+    :param feature: feature column name
+    :param data: dataframe containing features and target columns
+    :param target_col: target column name
+    :param bins: number of bins to be created from continuous feature
+    :param data_test: test data which has to be compared with input data for correlation
+    :return: grouped data if only train passed, else (grouped train data, grouped test data)
+    """
+    print(' {:^100} '.format('Plots for ' + feature))
+    if data[feature].dtype == 'O':
+        print('Categorical feature not supported')
+    else:
+        cuts, grouped = get_grouped_data(input_data=data, feature=feature, target_col=target_col, bins=bins, cuts = v_cuts)
+        if len(v_cuts) > 0:
+            cuts = v_cuts
+        print(cuts, 'univariate_plotter')
+        has_test = type(data_test) == pd.core.frame.DataFrame
+        if has_test:
+            grouped_test = get_grouped_data(input_data=data_test.reset_index(drop=True), feature=feature,
+                                            target_col=target_col, bins=bins, cuts=cuts)
+            trend_corr = get_trend_correlation(grouped, grouped_test, feature, target_col)
+            print(' {:^100} '.format('Train data plots'))
+
+            draw_plots(input_data=grouped, feature=feature, target_col=target_col)
+            print(' {:^100} '.format('Test data plots'))
+
+            draw_plots(input_data=grouped_test, feature=feature, target_col=target_col, trend_correlation=trend_corr)
+        else:
+            draw_plots(input_data=grouped, feature=feature, target_col=target_col)
+        print(
+            '--------------------------------------------------------------------------------------------------------------')
+        print('\n')
+        if has_test:
+            return (grouped, grouped_test)
+        else:
+            return (grouped)
+
+
+def get_univariate_plots(data, target_col, features_list=0, bins=10, data_test=0, v_cuts = []):
+    """
+    Creates univariate dependence plots for features in the dataset
+    :param data: dataframe containing features and target columns
+    :param target_col: target column name
+    :param features_list: by default creates plots for all features. If list passed, creates plots of only those features.
+    :param bins: number of bins to be created from continuous feature
+    :param data_test: test data which has to be compared with input data for correlation
+    :param v_cuts: if oner wants to make his/her own bins, then it should be passed like [18,28,30,40]
+    :return: Draws univariate plots for all columns in data
+    """
+    if type(features_list) == int:
+        features_list = list(data.columns)
+        features_list.remove(target_col)
+
+    for cols in features_list:
+        if cols != target_col and data[cols].dtype == 'O':
+            print(cols + ' is categorical. Categorical features not supported yet.')
+        elif cols != target_col and data[cols].dtype != 'O':
+            univariate_plotter(feature=cols, data=data, target_col=target_col, bins=bins, data_test=data_test, v_cuts = v_cuts )
+
+
+def get_trend_stats(data, target_col, features_list=0, bins=10, data_test=0):
+    """
+    Calculates trend changes and correlation between train/test for list of features
+    :param data: dataframe containing features and target columns
+    :param target_col: target column name
+    :param features_list: by default creates plots for all features. If list passed, creates plots of only those features.
+    :param bins: number of bins to be created from continuous feature
+    :param data_test: test data which has to be compared with input data for correlation
+    :return: dataframe with trend changes and trend correlation (if test data passed)
+    """
+
+    if type(features_list) == int:
+        features_list = list(data.columns)
+        features_list.remove(target_col)
+
+    stats_all = []
+    has_test = type(data_test) == pd.core.frame.DataFrame
+    ignored = []
+    for feature in features_list:
+        if data[feature].dtype == 'O' or feature == target_col:
+            ignored.append(feature)
+        else:
+            cuts, grouped = get_grouped_data(input_data=data, feature=feature, target_col=target_col, bins=bins)
+            trend_changes = get_trend_changes(grouped_data=grouped, feature=feature, target_col=target_col)
+            if has_test:
+                grouped_test = get_grouped_data(input_data=data_test.reset_index(drop=True), feature=feature,
+                                                target_col=target_col, bins=bins, cuts=cuts)
+                trend_corr = get_trend_correlation(grouped, grouped_test, feature, target_col)
+                trend_changes_test = get_trend_changes(grouped_data=grouped_test, feature=feature,
+                                                       target_col=target_col)
+                stats = [feature, trend_changes, trend_changes_test, trend_corr]
+            else:
+                stats = [feature, trend_changes]
+            stats_all.append(stats)
+    stats_all_df = pd.DataFrame(stats_all)
+    stats_all_df.columns = ['Feature', 'Trend_changes'] if has_test == False else ['Feature', 'Trend_changes',
+                                                                                   'Trend_changes_test',
+                                                                                   'Trend_correlation']
+    if len(ignored) > 0:
+        print('Categorical features ' + str(ignored) + ' ignored. Categorical features not supported yet.')
+
+    print('Returning stats for all numeric features')
+    return (stats_all_df)
+
+###################################################################################################
+#######################UPPER SIDE IS JUST FOR TARGET BASED NUMERIC FEATURE ANALYSIS################
+###################################################################################################
+
 def f_get_PCA_and_Visualize(v_df, v_numeric_columns_list, v_target_column_name):
     '''
     dfx = f_get_PCA_and_Visualize(sample_df, ['age','income','somethingelse'] ,  v_target_column_name = 'is_bought')
@@ -42,8 +424,315 @@ def f_get_PCA_and_Visualize(v_df, v_numeric_columns_list, v_target_column_name):
                    , finalDf.loc[indicesToKeep, 'principal component 2']
                    , c = color
                    , s = 30)
+#        ax.text(finalDf.loc[indicesToKeep, 'principal component 1'], 
+#                finalDf.loc[indicesToKeep, 'principal component 2'], 
+#                "1", 
+#                fontsize=10)
+    for i,j in zip(finalDf['principal component 1'], finalDf['principal component 2']):
+        index_x = finalDf[(finalDf['principal component 1'] == i) & (finalDf['principal component 2'] == j)].index[0]
+        ax.text(i, j, index_x, horizontalalignment='left', verticalalignment='bottom', color ="fuchsia", fontsize=12 ) 
     ax.legend(targets)
     ax.grid()
    
     print(pca.explained_variance_ratio_)
     return finalDf
+
+
+
+def half_masked_corr_heatmap(dataframe, title=None, file=None):
+    '''
+    all features has to be numeric!!
+    Required parameter: dataframe ... the reference pandas dataframe
+    Optional parameters: title ... (string) chart title
+                         file  ... (string) path+filename if you want to save image
+    usage:
+        half_masked_corr_heatmap(df,
+                         'CA Housing Price Data - Variable Correlations',
+                         )
+    '''
+    plt.figure(figsize=(9,9))
+    sns.set(font_scale=1)
+
+    mask = np.zeros_like(dataframe.corr())
+    mask[np.triu_indices_from(mask)] = True
+
+    with sns.axes_style("white"):
+        sns.heatmap(dataframe.corr(), mask=mask, annot=True, cmap='coolwarm')
+
+    if title: plt.title('\n{title}\n', fontsize=18)
+    plt.xlabel('')    # optional in case you want an x-axis label
+    plt.ylabel('')    # optional in case you want a  y-axis label
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+    
+    return
+
+
+
+def corr_to_target(dataframe, target, title=None, file=None):
+    '''
+    all features has to be numeric!!
+    # Required parameters: dataframe ... the reference pandas dataframe
+    #                      target ... (string) column name of the target variable
+
+    # Optional parameters: title ... (string) chart title
+    corr_to_target(df, 'price',
+               'CA Housing Price Data - Corr to Price',
+               './plot_blog_images/07_corr_to_price.jpg'
+              )
+    '''
+    plt.figure(figsize=(4,6))
+    sns.set(font_scale=1)
+    
+    sns.heatmap(dataframe.corr()[[target]].sort_values(target,
+                                                ascending=False)[1:],
+                annot=True,
+                cmap='coolwarm')
+    
+    if title: plt.title('\n{title}\n', fontsize=18)
+    plt.xlabel('')    # optional in case you want an x-axis label
+    plt.ylabel('')    # optional in case you want a  y-axis label
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+    
+    return
+
+
+
+
+def gen_scatterplots(dataframe, target_column, list_of_columns, cols=1, file=None):
+    '''
+    # N-across scatterplots of each feature vs. target ...
+    # Required parameters: dataframe ... the reference pandas dataframe
+    #                      target ... (string) column name of the target variable
+
+    # Optional parameters: title ... (string) chart title
+    #                      file  ... (string) path+filename if you want to save image
+    
+    feature_cols = [col for col in df.columns if col != 'price']
+    gen_scatterplots(df, 'price',
+                 feature_cols,
+                 3,
+                 './plot_blog_images/09_feature_target_scatter_plots.jpg'
+                )
+    
+    '''
+    rows      = math.ceil(len(list_of_columns)/cols)
+    figwidth  = 5 * cols
+    figheight = 4 * rows
+
+    fig, ax = plt.subplots(nrows   = rows,
+                           ncols   = cols,
+                           figsize = (figwidth, figheight))
+    
+    color_choices = ['blue', 'grey', 'goldenrod', 'r', 'black', 'darkorange', 'g']
+
+    plt.subplots_adjust(wspace=0.3, hspace=0.3)
+    ax = ax.ravel()         # Ravel turns a matrix into a vector... easier to iterate
+
+    for i, column in enumerate(list_of_columns):
+        ax[i].scatter(dataframe[column],
+                      dataframe[target_column],
+                      color=color_choices[i % len(color_choices)],
+                      alpha = 0.1)
+
+#           Individual subplot titles, optional
+#             ax[i].set_title(f'{column} vs. {target_column}', fontsize=18)
+
+        ax[i].set_ylabel('{target_column}', fontsize=14)
+        ax[i].set_xlabel('{column}', fontsize=14)
+
+    fig.suptitle('\nEach Feature vs. Target Scatter Plots', size=24)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0, top=0.88)
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+    return
+
+
+
+
+def gen_histograms(dataframe, cols=1, file=None):
+    '''
+    all features has to be numeric!!
+    # N-across Histograms of each variable in the dataframe ...
+    # Required parameter: dataframe ... the reference pandas dataframe
+
+    # Optional parameters: cols ... no. of subplot columns across fig; default=1
+    #                      file  ... (string) path+filename if you want to save image
+    gen_histograms(df, 3,
+               './plot_blog_images/11_all_var_histograms.jpg'
+              )
+    '''
+    rows      = math.ceil(len(dataframe.columns)/cols)
+    figwidth  = 5 * cols
+    figheight = 4 * rows
+
+    fig, ax = plt.subplots(nrows   = rows,
+                           ncols   = cols,
+                           figsize = (figwidth, figheight))
+    
+    color_choices = ['blue', 'grey', 'goldenrod', 'r', 'black', 'darkorange', 'g']
+    ax = ax.ravel()         # Ravel turns a matrix into a vector... easier to iterate
+
+    for i, column in enumerate(dataframe.columns):
+        ax[i].hist(dataframe[column],
+                      color=color_choices[i % len(color_choices)],
+                      alpha = 1)
+        
+        ax[i].set_title('{dataframe[column].name}', fontsize=18)
+        ax[i].set_ylabel('Observations', fontsize=14)
+        ax[i].set_xlabel('', fontsize=14)
+        
+    fig.suptitle('\nHistograms for All Variables in Dataframe', size=24)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0, top=0.88)
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+
+    return
+
+
+
+
+
+def gen_boxplots(dataframe, cols=1, file=None):
+    '''
+    all features has to be numeric!!
+    # N-across boxplots of each variable in the dataframe ...
+    # Required parameter: dataframe ... the reference pandas dataframe
+
+    # Optional parameters: cols ... no. of subplot columns across fig; default=1
+    #                      file  ... (string) path+filename if you want to save image
+    gen_boxplots(df, 3,
+             './plot_blog_images/13_all_var_boxplots.jpg'
+            )
+    '''
+    rows      = math.ceil(len(dataframe.columns)/cols)
+    figwidth  = 5 * cols
+    figheight = 4 * rows
+
+    fig, ax = plt.subplots(nrows   = rows,
+                           ncols   = cols,
+                           figsize = (figwidth, figheight))
+    
+    plt.subplots_adjust(wspace=0.3, hspace=0.3)
+    ax = ax.ravel()         # Ravel turns a matrix into a vector... easier to iterate
+
+    for i, column in enumerate(dataframe.columns):
+        ax[i].boxplot(dataframe[column])
+        
+        ax[i].set_title('{dataframe[column].name}', fontsize=18)
+        ax[i].set_ylabel('', fontsize=14)
+        ax[i].set_xlabel('', fontsize=14)
+        ax[i].tick_params(labelbottom=False)
+        
+    fig.suptitle('\nBoxplots for All Variables in Dataframe', size=24)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0, top=0.88)
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+
+    return
+
+
+
+
+
+def gen_linecharts(dataframe, cols=1, file=None):
+    '''
+    it is just for time series data which is indexed by date time with just value column
+    # N-across Line Charts of each variable in the dataframe ...
+    # Required parameter: dataframe ... the reference pandas dataframe
+
+    # Optional parameters: cols ... no. of subplot columns across fig; default=1
+    #                      file  ... (string) path+filename if you want to save image
+    
+    gen_linecharts(df, 3,
+               './plot_blog_images/15_all_var_line_charts.jpg'
+              )
+    '''
+    list_of_columns = list(dataframe.columns)
+    rows      = math.ceil(len(list_of_columns)/cols)
+    figwidth  = 5 * cols
+    figheight = 4 * rows
+
+    fig, ax = plt.subplots(nrows   = rows,
+                           ncols   = cols,
+                           figsize = (figwidth, figheight))
+    
+    color_choices = ['blue', 'grey', 'goldenrod', 'r', 'black', 'darkorange', 'g']
+
+    plt.subplots_adjust(wspace=0.3, hspace=0.3)
+    ax = ax.ravel()         # Ravel turns a matrix into a vector... easier to iterate
+
+    for i, column in enumerate(list_of_columns):
+        ax[i].plot(dataframe[column],
+                   color=color_choices[i % len(color_choices)])
+        
+        ax[i].set_title(column, fontsize=18)
+        ax[i].set_ylabel(column, fontsize=14)
+        
+    fig.suptitle('\nLine Graphs for All Variables in Dataframe', size=24)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0, top=0.88)
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+    
+    return
+
+
+
+
+def gen_linecharts_rolling(dataframe, roll_num, cols=1, file=None):
+    '''
+    it is just for time series data which is indexed by date time with just value column
+    # N-across Rolling Avg Line Charts of each variable in the dataframe ...
+    # Required parameters: dataframe ... the reference pandas dataframe
+    #                      roll_num ... periods over which to calc rolling avg
+    
+    # Optional parameters: cols ... no. of subplot columns across fig; default=1
+    #                      file  ... (string) path+filename if you want to save image
+    gen_linecharts_rolling(df, 150, 3,
+                      './plot_blog_images/17_all_var_rolling_line_charts.jpg'
+                      )
+    
+    '''
+    list_of_columns = list(dataframe.columns)    
+    rows      = math.ceil(len(list_of_columns)/cols)
+    figwidth  = 5 * cols
+    figheight = 4 * rows
+    
+    dataframe = dataframe.rolling(roll_num).mean()
+
+    fig, ax = plt.subplots(nrows   = rows,
+                           ncols   = cols,
+                           figsize = (figwidth, figheight))
+    
+    color_choices = ['blue', 'grey', 'goldenrod', 'r', 'black', 'darkorange', 'g']
+
+    plt.subplots_adjust(wspace=0.3, hspace=0.3)
+    ax = ax.ravel()         # Ravel turns a matrix into a vector... easier to iterate
+
+    for i, column in enumerate(list_of_columns):
+        ax[i].plot(dataframe[column],
+                   color=color_choices[i % len(color_choices)])
+        
+        ax[i].set_title(column, fontsize=18)
+        ax[i].set_ylabel(column, fontsize=14)
+        ax[i].set_xlabel('Time', fontsize=14)
+        
+    fig.suptitle('\nRolling Avg. Line Graphs (all vars)', size=24)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0, top=0.88)
+    if file: plt.savefig(file, bbox_inches='tight')
+    plt.show();
+    
+    return
+
+    
+
+
+if __name__ == "__main__":
+    print("coding trials in there...")
+#    get_grouped_data(input_data=df, feature='', target_col=target_col, bins=bins, cuts = v_cuts)
