@@ -1,0 +1,85 @@
+
+'''********************************************** Decision Tree Binning & WOE **********************************************'''
+
+# Find optimal univariate tree depth
+def dt_OptDepth(x_train, y_train, n_depth, min_LeafPerc):
+
+    opt_depth = []
+    for clmn in x_train.columns:
+        dt_auc = []
+        dt_depth = []
+        X_rows_to_bin = x_train[clmn].dropna()
+        y_rows = y_train[X_rows_to_bin.index]
+        if len(X_rows_to_bin) <= 1000:
+            opt_depth.append(0)
+        else:
+            for t_depth in range(1, n_depth+1):
+                clf = DecisionTreeClassifier(max_depth=t_depth, min_samples_leaf=int(len(x_train) * min_LeafPerc))
+                clf.fit(np.array(X_rows_to_bin).reshape(-1, 1), y_rows)
+                y_pred_prob = clf.predict_proba(np.array(X_rows_to_bin).reshape(-1, 1))[:, 1]
+                auc_value = roc_auc_score(y_rows, y_pred_prob)
+                dt_auc.append(auc_value)
+                dt_depth.append(clf.get_depth())
+            opt_depth.append(dt_depth[dt_auc.index(max(dt_auc))])
+        print(dt_auc) # bu açıkken hangi değişkende takılıyor görebilirsin
+        print(dt_depth) # bu açıkken hangi değişkende takılıyor görebilirsin
+
+    return pd.Series(opt_depth, index=x_train.columns)
+
+
+# Binning
+def dt_Binning(x_train, y_train, x_test, optim_depths, min_LeafPerc):
+
+    predX_train = x_train.copy()
+    predX_test = x_test.copy()
+
+    for clmn in x_train[optim_depths.index].columns:
+        X_rows_to_bin = predX_train[clmn].dropna()
+        y_rows = y_train[X_rows_to_bin.index]
+        clf = DecisionTreeClassifier(max_depth=optim_depths[clmn],
+                                     min_samples_leaf=int(len(x_train) * min_LeafPerc))
+        clf.fit(np.array(X_rows_to_bin).reshape(-1, 1), y_rows)
+
+        pred = pd.DataFrame(clf.predict_proba(np.array(X_rows_to_bin).reshape(-1, 1))[:, 1],
+                            index=X_rows_to_bin.index, columns=["TREE_" + clmn])
+        predX_train = predX_train.merge(pred, left_index=True, right_index=True, how="left")
+        bins = predX_train.groupby(["TREE_" + clmn])[clmn].agg(['min', 'max']).sort_values(by="min", ascending=True)
+        bins["rank"] = bins["min"].rank(method='min', ascending=True, na_option="bottom")
+        predX_train["BIN_" + clmn] = predX_train["TREE_" + clmn].map(bins["rank"])
+        predX_train["BIN_" + clmn].fillna(0, inplace=True)
+
+        test_rows_to_bin = predX_test[clmn].dropna()
+        pred_test = pd.DataFrame(clf.predict_proba(np.array(test_rows_to_bin).reshape(-1, 1))[:, 1],
+                                 index=test_rows_to_bin.index, columns=["TREE_" + clmn])
+        predX_test = predX_test.merge(pred_test, left_index=True, right_index=True, how="left")
+        predX_test["BIN_" + clmn] = predX_test["TREE_" + clmn].map(bins["rank"])
+        predX_test["BIN_" + clmn].fillna(0, inplace=True)
+
+    return predX_train, predX_test
+
+
+# Weight of Evidence
+def f_get_woe(binnedX_train, binnedX_test):
+
+    X_train_for_woe = binnedX_train.copy()
+    X_test_for_woe = binnedX_test.copy()
+
+    for clm in X_train_for_woe.columns:
+            target = "TARGET"
+            if clm != "TARGET":
+                    woe_df = X_train_for_woe.groupby(clm)[target].agg(["count", "sum"])
+                    woe_df = woe_df.rename(columns={"count": 'All', "sum": 'Good'})
+                    woe_df["Bad"] = woe_df["All"] - woe_df["Good"]
+                    cnts = X_train_for_woe.groupby(target)[clm].agg(["count"])
+                    cnts["count"] = np.where(cnts["count"] == 0, 0.000001, cnts["count"])
+                    woe_df["Dist_Good"] = woe_df["Good"] / cnts.iloc[1, 0]
+                    woe_df["Dist_Bad"] = woe_df["Bad"] / cnts.iloc[0, 0]
+                    woe_df["Dist_Good"] = np.where(woe_df["Dist_Good"] == 0, 0.000001, woe_df["Dist_Good"])
+                    woe_df["Dist_Bad"] = np.where(woe_df["Dist_Bad"] == 0, 0.000001, woe_df["Dist_Bad"])
+                    woe_df["WoE"] = np.log(woe_df.Dist_Good / woe_df.Dist_Bad)
+                    # print(woe_df)
+                    woe_col_name = "WOE" + clm
+                    X_train_for_woe[woe_col_name] = X_train_for_woe[clm].map(woe_df["WoE"])
+                    X_test_for_woe[woe_col_name] = X_test_for_woe[clm].map(woe_df["WoE"])
+
+    return X_train_for_woe, X_test_for_woe
