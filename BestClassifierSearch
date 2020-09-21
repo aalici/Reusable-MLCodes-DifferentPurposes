@@ -1,0 +1,222 @@
+# -*- coding: utf-8 -*-
+"""
+"""
+
+"""
+Created on Fri Dec  7 09:55:16 2018
+"""
+
+##### File name must be BestClassifierSearch.py to call by RunMLClassification.py ########
+# IT HAS TO BE RUN WITH 
+# just for binary classification with gridsearch techniques.
+# One can change param_grid settings according the issue dealt with.
+# I have tried to explain functionalities of most confusing ones and gave refereneces for more info
+# After all, ROC Curve and Feature Importance graph functions are also defined for evaluation of model.
+
+import random
+import pandas as pd, numpy as np, matplotlib.pyplot as plt
+from math import radians, sin, cos, sqrt, asin
+from datetime import datetime
+import csv as csv
+import string
+import sys
+import difflib
+import numpy as np
+import matplotlib.pyplot as plt
+# from matplotlib.pyplot import *
+from scipy.stats import norm
+from sklearn.neighbors import KernelDensity
+from sklearn import datasets  ## imports datasets from scikit-learn
+from sklearn.metrics import roc_curve, precision_recall_curve, roc_auc_score, accuracy_score, classification_report, \
+    confusion_matrix, precision_recall_curve, auc, make_scorer, recall_score, precision_score
+######
+from matplotlib import pyplot as plt
+import seaborn as sns
+######
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
+######
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+
+np.set_printoptions(suppress=True)
+
+list_general = []
+
+
+# ML Run Function
+# If just one model is tried to be run, just specify v_spec_model param with model_name in dict. If no param is given then all models will be run consecutively
+# If you want to use specific Naive Bayes Model other than MultinomialNB, you should specify v_NB with GaussianNB() or BernoulliNB()
+def run_ML_models(v_spec_model=None, v_NB=MultinomialNB()):
+    """
+    1.Gaussian NB: It should be used for features in decimal form. GNB assumes features to follow a normal distribution.
+    2.MultiNomial NB: It should be used for the features with discrete values like word count 1,2,3...
+    3.Bernoulli NB: It should be used for features with binary or boolean values like True/False or 0/1.
+    """
+    # select one of them according your dataset
+    NBClassifier = v_NB
+    #    NBClassifier = MultinomialNB()
+    #    NBClassifier = GaussianNB()
+    #    NBClassifier = BernoulliNB()
+
+    dict_ML_models = {
+        'param_grids_list': [param_grid_MLP,
+                             param_grid_TREE,
+                             param_grid_TREE,
+                             param_grid_SVM,
+                             param_grid_NB,
+                             param_grid_GB,
+                             param_grid_AB,
+                             param_grid_KNN,
+                             param_grid_LR
+                             ],
+        'model': [MLPClassifier(),
+                  DecisionTreeClassifier(),
+                  RandomForestClassifier(),
+                  SVC(),
+                  NBClassifier,
+                  GradientBoostingClassifier(),
+                  AdaBoostClassifier(),
+                  KNeighborsClassifier(),
+                  LogisticRegression()
+                  ],
+        'model_name': ["MLPClassifier()",
+                       "DecisionTreeClassifier()",
+                       "RandomForestClassifier()",
+                       "SVC()",
+                       "NaiveBayes()",
+                       "GradientBoostingClassifier()",
+                       "AdaBoostClassifier()",
+                       "KNeighborsClassifier()",
+                       "LogisticRegression()"
+                       ]
+    }
+
+    if (np.logical_not(len(dict_ML_models['param_grids_list']) == len(dict_ML_models['param_grids_list'])
+                       and
+                       len(dict_ML_models['param_grids_list']) == len(dict_ML_models['model_name'])
+                       )
+    ):
+        raise ValueError('N OF ELEMENTS IN dict_ML_models inconsistent!!!')
+
+    #
+    #
+    #    #if you wanna a run just specific model, please pass its name to spec_model argument. Otherwise delete it.
+    #    spec_model = 'RandomForestClassifier()'
+
+    for i in range(0, len(dict_ML_models['param_grids_list'])):
+        if v_spec_model != None and dict_ML_models['model_name'][i] == v_spec_model:
+            gridsearchCLF(dict_ML_models['param_grids_list'][i], dict_ML_models['model'][i],
+                          dict_ML_models['model_name'][i])
+        elif v_spec_model == None:
+            gridsearchCLF(dict_ML_models['param_grids_list'][i], dict_ML_models['model'][i],
+                          dict_ML_models['model_name'][i])
+        else:
+            print("no model hit! please check function parameters!!")
+
+
+# the function is for performing all grid search operation with given parms, and shows model performance
+# with confusion matrix
+def gridsearchCLF(param_grid, clf_v, model_name_v, X_train, y_train, X_test, y_test, v_n_jobs, v_extra_param,
+                  v_list_general, v_cv=5):
+    print("aaaaaaaaaaaaaaaaaaaaaaa   " + str(v_extra_param) + "  aaaaaaaaaaaaaaaaaaaaaaa")
+
+    random.seed(137)
+    model_dict = {}
+    print("***************", model_name_v, "***************")
+    scores = ['precision_macro', 'recall_macro']
+    for score in scores:
+        start_time = datetime.now()
+        print('## eval metric:', score, '##')
+
+        #        clf = GridSearchCV(SVC(), tuned_parameters, cv=5,
+        #                           scoring='%s_macro' % score)
+
+        # clf = GridSearchCV(clf_v, param_grid, cv_v,  scoring = score)
+        if len(param_grid) != 0:
+            clf = GridSearchCV(clf_v, param_grid, cv=v_cv, verbose=False, scoring=score, n_jobs=v_n_jobs)
+        else:
+            clf = clf_v
+
+        clf.fit(X_train, y_train)
+
+        if len(param_grid) != 0:
+            print("Best parameters set found on development set:")
+            print('##', clf.best_params_, '##')
+            model_dict.update({score: clf.best_params_})
+            print("")
+        print("*****Detailed classification report: (from TEST set)*****")
+        print("")
+        y_true, y_pred = y_test, clf.predict(X_test)
+        cs_report_test = classification_report(y_true, y_pred)
+        print(classification_report(y_true, y_pred))
+        print("Confusion Matrix: ")
+        print("")
+        conf_matrix_test = confusion_matrix(y_true, y_pred)
+        print(confusion_matrix(y_true, y_pred))
+        print("")
+
+        print("*****Detailed classification report: (from TRAIN set)*****")
+        print("")
+        y_true, y_pred = y_train, clf.predict(X_train)
+        cs_report_train = classification_report(y_true, y_pred)
+        print(classification_report(y_true, y_pred))
+        print("Confusion Matrix: ")
+        print("")
+        conf_matrix_train = confusion_matrix(y_true, y_pred)
+        print(confusion_matrix(y_true, y_pred))
+        print("")
+
+        end_time = datetime.now()
+        print("run is finished in " + str((end_time - start_time).seconds) + " seconds")
+        print("------------------*****-----------------------")
+        print()
+        v_list_general.append([v_extra_param,
+                               clf.best_params_,
+                               cs_report_test,
+                               conf_matrix_test,
+                               cs_report_train,
+                               conf_matrix_train
+                               ])
+    return model_dict
+
+
+# Classifiers calculate feature importance which can be shown basically as follows
+def featureImportanceGraph(clf_v):
+    feature_imp = pd.Series(clf_v.feature_importances_, index=X.columns).sort_values(ascending=False)
+    # feature_imp = pd.Series(clf_v.feature_importances_, index=data_v.feature_names).sort_values(ascending=False)
+    sns.barplot(x=feature_imp, y=feature_imp.index)
+    # Add labels to your graph
+    plt.xlabel('Feature Importance Score')
+    plt.ylabel('Features')
+    plt.title("Visualizing Important Features")
+    plt.legend()
+    plt.show()
+
+
+# For detailed information behind the interpretability of ROC is explained in detailed from following:
+# https://towardsdatascience.com/understanding-auc-roc-curve-68b2303cc9c5
+def ROCGraph(data_v, clf_v, title_v, X_test, y_test):
+    y_pred_prob = clf_v.predict_proba(X_test)
+    # if it is a binary classification, then 1 value is reference point
+    # but if you have multiclass problem ROC curve becomes one vs. ALL graph.
+    # one has to change y_pred_prob[:,1] according to reference class
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, y_pred_prob[:, 1])
+    plt.plot(fpr, tpr)
+    plt.xlim([-0.05, 1.1])  ##just for seeing line in case of perferct classifier alligns with Y axis
+    plt.ylim([-0.05, 1.1])
+    plt.rcParams['font.size'] = 12
+    plt.title('ROC curve for ' + title_v)
+    plt.xlabel('False Positive Rate (1 - Specificity)')
+    plt.ylabel('True Positive Rate (Sensitivity)')
+    plt.grid(True)
+    plt.show()
