@@ -1,0 +1,111 @@
+# -*- coding: utf-8 -*-
+
+from sklearn import tree
+import pandas as pd
+import numpy as np
+import pickle
+from sklearn.tree import export_text
+from sklearn.preprocessing import OneHotEncoder
+
+
+# r = export_text(clf2, feature_names=(list(X.columns)))
+# print(r)
+
+class Tree_Rules:
+    def __init__(self, clf):
+        self.clf = clf
+        self.children_left = clf.tree_.children_left
+        self.children_right = clf.tree_.children_right
+        self.feature = clf.tree_.feature
+        self.threshold = clf.tree_.threshold
+
+    def find_path(self, node_numb, path, x):
+
+        path.append(node_numb)
+        if node_numb == x:
+            return True
+        left = False
+        right = False
+        if (self.children_left[node_numb] != -1):
+            left = self.find_path(self.children_left[node_numb], path, x)
+        if (self.children_right[node_numb] != -1):
+            right = self.find_path(self.children_right[node_numb], path, x)
+        if left or right:
+            return True
+        path.remove(node_numb)
+        return False
+
+    def get_rule(self, path, column_names):
+
+        mask = ''
+        for index, node in enumerate(path):
+            # We check if we are not in the leaf
+            if index != len(path) - 1:
+                # Do we go under or over the threshold ?
+                if (self.children_left[node] == path[index + 1]):
+                    mask += "({}<= {}) \t ".format(column_names[self.feature[node]], self.threshold[node])
+                else:
+                    mask += "({}> {}) \t ".format(column_names[self.feature[node]], self.threshold[node])
+        # We insert the & at the right places
+        mask = mask.replace("\t", "&", mask.count("\t") - 1)
+        mask = mask.replace("\t", "")
+        return mask
+
+    def get_tree_rules_percentages(self, df, class_no, percentage_limit, target, is_safe):
+        paths = {}
+        leave_id = self.clf.apply(df.drop(target, axis=1))
+        for leaf in np.unique(leave_id):
+            path_leaf = []
+            self.find_path(0, path_leaf, leaf)
+            paths[leaf] = np.unique(np.sort(path_leaf))
+
+        rules = {}
+        for key in paths:
+            rules[key] = self.get_rule(paths[key], df.columns)
+
+        df_result = pd.DataFrame({'node': [], 'path': [], 'percentage': [], 'number0': [], 'number1': []})
+        nodes = []
+        percentage = []
+        path = []
+        number0 = []
+        number1 = []
+
+        all_number0 = len(df.loc[df[target] == 0])
+        all_number1 = len(df.loc[df[target] == 1])
+
+        for index, node in enumerate(rules):
+
+            path.append(rules[node])
+            nodes.append(node)
+
+            if (is_safe == 0):
+                number0.append(len(df.query(rules[node]).loc[df.query(rules[node])[target] == 0]))
+                number1.append(len(df.query(rules[node]).loc[df.query(rules[node])[target] == 1]))
+                data_size = len(df.query(rules[node]).loc[df.query(rules[node])[target] == 0]) + len(
+                    df.query(rules[node]).loc[df.query(rules[node])[target] == 1])
+                control = (df.query(rules[node]).groupby(target)[[target]].count() / data_size).rename(
+                    columns={target: 'percentage'}).reset_index()
+                percentage.append(control.loc[control[target] == class_no]['percentage'].sum())
+
+            else:
+                fre0 = (len(df.query(rules[node]).loc[df.query(rules[node])[target] == 0]) / all_number0)
+                fre1 = (len(df.query(rules[node]).loc[df.query(rules[node])[target] == 1]) / all_number1)
+                number0.append(fre0)
+                number1.append(fre1)
+                if (class_no == 0):
+                    percentage.append(fre0 / (fre0 + fre1))
+                else:
+                    percentage.append(fre1 / (fre0 + fre1))
+
+        df_result = pd.DataFrame(
+            {'node': nodes, 'path': path, 'percentage': percentage, 'number0': number0, 'number1': number1})
+        return df_result.loc[df_result.percentage >= percentage_limit], rules
+
+
+
+y = df["TARGET_COLUMN"]
+X = df.drop('TARGET_COLUMN', axis=1)
+clf2 = clf2.fit(X, y)
+
+obj = Tree_Rules(clf2)
+final_result, rule = obj.get_tree_rules_percentages(df, 1, 0.7, 'TARGET_COLUMN', 0)
