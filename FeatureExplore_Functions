@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from collections import Counter 
 import math
 import seaborn as sns
+import random
 
   
 
@@ -388,6 +389,7 @@ def f_get_PCA_and_Visualize(v_df, v_numeric_columns_list, v_target_column_name):
     numeric_columns = v_numeric_columns_list
     df = v_df
     
+    
     #np.shape(x)
     #np.shape(y)
     #np.shape(principalComponents)
@@ -417,7 +419,14 @@ def f_get_PCA_and_Visualize(v_df, v_numeric_columns_list, v_target_column_name):
     ax.set_ylabel('Principal Component 2', fontsize = 15)
     ax.set_title('2 component PCA', fontsize = 20)
     targets = df[target_column].unique()
-    colors = ['r', 'g']
+    
+    colors = []
+    for x in targets:
+        r = random.randint(0,255)
+        g = random.randint(0,255)
+        b = random.randint(0,255)
+        colors.append([r,g,b])
+#    colors = ['r', 'g']
     for target, color in zip(targets,colors):
         indicesToKeep = finalDf[target_column] == target
         ax.scatter(finalDf.loc[indicesToKeep, 'principal component 1']
