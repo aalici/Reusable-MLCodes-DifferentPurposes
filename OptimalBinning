@@ -1,8 +1,8 @@
 
-'''********************************************** Decision Tree Binning & WOE **********************************************'''
+
 
 # Find optimal univariate tree depth
-def dt_OptDepth(x_train, y_train, n_depth, min_LeafPerc):
+def dt_OptDepth(x_train, y_train, n_depth, min_LeafPerc): # min_leaf_perc should be less than 1
 
     opt_depth = []
     for clmn in x_train.columns:
@@ -21,17 +21,20 @@ def dt_OptDepth(x_train, y_train, n_depth, min_LeafPerc):
                 dt_auc.append(auc_value)
                 dt_depth.append(clf.get_depth())
             opt_depth.append(dt_depth[dt_auc.index(max(dt_auc))])
-        print(dt_auc) # bu açıkken hangi değişkende takılıyor görebilirsin
-        print(dt_depth) # bu açıkken hangi değişkende takılıyor görebilirsin
+        print("for " + clmn + " auc is: ") # bu açıkken hangi değişkende takılıyor görebilirsin
+        print(dt_auc)
+        print("for " + clmn + " depth is: ") # bu açıkken hangi değişkende takılıyor görebilirsin
+        print(dt_depth)
 
     return pd.Series(opt_depth, index=x_train.columns)
 
 
 # Binning
-def dt_Binning(x_train, y_train, x_test, optim_depths, min_LeafPerc):
+def dt_Binning(x_train, y_train, optim_depths, min_LeafPerc, x_test = None):
 
     predX_train = x_train.copy()
-    predX_test = x_test.copy()
+    if x_test is not None:
+        predX_test = x_test.copy()
 
     for clmn in x_train[optim_depths.index].columns:
         X_rows_to_bin = predX_train[clmn].dropna()
@@ -47,22 +50,33 @@ def dt_Binning(x_train, y_train, x_test, optim_depths, min_LeafPerc):
         bins["rank"] = bins["min"].rank(method='min', ascending=True, na_option="bottom")
         predX_train["BIN_" + clmn] = predX_train["TREE_" + clmn].map(bins["rank"])
         predX_train["BIN_" + clmn].fillna(0, inplace=True)
+        
+        dict_min_max = predX_train.groupby("BIN_" + clmn)[clmn].agg([('min','min'),('max','max')]).to_dict('index')
+        predX_train["BINX_" + clmn] = predX_train["BIN_" + clmn].apply(lambda x: str(dict_min_max.get(x).get("min")) + \
+                                                                                  " - " + \
+                                                                                  str(dict_min_max.get(x).get("max")) )
+        
 
-        test_rows_to_bin = predX_test[clmn].dropna()
-        pred_test = pd.DataFrame(clf.predict_proba(np.array(test_rows_to_bin).reshape(-1, 1))[:, 1],
-                                 index=test_rows_to_bin.index, columns=["TREE_" + clmn])
-        predX_test = predX_test.merge(pred_test, left_index=True, right_index=True, how="left")
-        predX_test["BIN_" + clmn] = predX_test["TREE_" + clmn].map(bins["rank"])
-        predX_test["BIN_" + clmn].fillna(0, inplace=True)
+        if x_test is not None:
+            test_rows_to_bin = predX_test[clmn].dropna()
+            pred_test = pd.DataFrame(clf.predict_proba(np.array(test_rows_to_bin).reshape(-1, 1))[:, 1],
+                                     index=test_rows_to_bin.index, columns=["TREE_" + clmn])
+            predX_test = predX_test.merge(pred_test, left_index=True, right_index=True, how="left")
+            predX_test["BIN_" + clmn] = predX_test["TREE_" + clmn].map(bins["rank"])
+            predX_test["BIN_" + clmn].fillna(0, inplace=True)
 
-    return predX_train, predX_test
+    if x_test is not None:
+        return predX_train, predX_test
+    else:
+        return predX_train
 
 
 # Weight of Evidence
-def f_get_woe(binnedX_train, binnedX_test):
+def f_get_woe(binnedX_train, binnedX_test = None):
 
     X_train_for_woe = binnedX_train.copy()
-    X_test_for_woe = binnedX_test.copy()
+    if binnedX_test is not None:
+        X_test_for_woe = binnedX_test.copy()
 
     for clm in X_train_for_woe.columns:
             target = "TARGET"
@@ -80,6 +94,9 @@ def f_get_woe(binnedX_train, binnedX_test):
                     # print(woe_df)
                     woe_col_name = "WOE" + clm
                     X_train_for_woe[woe_col_name] = X_train_for_woe[clm].map(woe_df["WoE"])
-                    X_test_for_woe[woe_col_name] = X_test_for_woe[clm].map(woe_df["WoE"])
-
-    return X_train_for_woe, X_test_for_woe
+                    if binnedX_test is not None:
+                        X_test_for_woe[woe_col_name] = X_test_for_woe[clm].map(woe_df["WoE"])
+    if binnedX_test is not None:
+        return X_train_for_woe, X_test_for_woe
+    else:
+        return X_train_for_woe
