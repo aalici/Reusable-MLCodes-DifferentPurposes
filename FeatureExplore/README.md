@@ -5,3 +5,5 @@
   * **Sweetviz:** The best data exploration tool to observe input and output(dependent variable) relations. It is an open-source Python library that generates beautiful, high-density visualizations to kickstart EDA (Exploratory Data Analysis) with just two lines of code. Output is a fully self-contained HTML application. (https://pypi.org/project/sweetviz/)
 
 * My individually written FeatureExplore file just includes some basic feature exploration boiler-plate codes that save your time to re-write then again and again.
+
+* PCA_LDA files also shows basic feature transformation logic with using PCA and LDA. They might be used in data visualization (since it can make reduce the dimensions into 2-D space) and feature reduction.
