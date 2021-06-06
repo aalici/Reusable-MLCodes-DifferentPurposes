@@ -14,35 +14,44 @@ from statsmodels.stats.stattools import medcouple
 import scipy.stats as stats
 from sklearn.metrics import roc_curve, precision_recall_curve, roc_auc_score, accuracy_score, classification_report, \
     confusion_matrix, precision_recall_curve, auc, make_scorer, recall_score, precision_score
-#####
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
+import sklearn.metrics as sm
+
 import pickle
 
 
+##Just for serializing objects stuff..
 def f_pickle_dump(v_file_name, v_tuple):
     pickle.dump(v_tuple, open(v_file_name, "wb"))
-
 
 def f_pickle_load(v_file_name):
     return pickle.load(open(v_file_name, "rb"))
 
 
 def get_oracle_table_from_dbm(sql_text):
-    if 'connection_oracle_ali' not in globals():
+        """ Return pandas dataframe
+        :sql_text: credentials of related Oracle DB
+        """
+    if 'connection_oracle' not in globals():
         print('connection does not exist. Try to connect it...')
-        f = open('ali_oracle_dbm_conn_string.txt', "r")
+        f = open('oracle_dbm_conn_string.txt', "r") ##It would be better to save your credentials in environment variables. So such line will be altered in near future.
         fx = f.read()
         ####
-        global connection_oracle_ali
-        connection_oracle_ali = cx_Oracle.connect(fx)
+        global connection_oracle
+        connection_oracle = cx_Oracle.connect(fx)
         ####
         print('connection established!!')
 
     print('Already have connection. Just fetch data!!')
-    return pd.read_sql(sql_text, con=connection_oracle_ali)
+    return pd.read_sql(sql_text, con=connection_oracle)
 
 
-# Write pandas.DataFrame object to an excel file.
 def write_to_excel_file_by_pandas(excel_file_path, data_frame, sheet_name="data"):
+    """
+    just save pandas dataframe into an excel sheet
+    """
     excel_writer = pd.ExcelWriter(excel_file_path, engine='xlsxwriter')
     data_frame.to_excel(excel_writer, sheet_name)
     excel_writer.save()
@@ -65,6 +74,8 @@ def f_get_upperlower_limits_IQR(v_series, v_iqr_multiplier=1.5):
 
 def f_get_upperlower_limits_IQR_MC(v_series):
     '''
+    For numeric distributions of which behavior is seriosly different from gaussian distributions.
+    Idea behind such approach is coming from following paper: https://www.researchgate.net/publication/277943905_A_Modified_Approach_for_Detection_of_Outliers
     it just takes series and returns MC, upper and lower limits wrt medcouple IQR method
     #v_tolerance =           Q1     Q3
                     x < 0    -3     4
@@ -238,7 +249,7 @@ def f_plot_bar_series(v_series
 def f_generate_bin_by_percents(v_series, v_num_of_bins):
     '''
     v_series: series wants to be seperated into bins
-    v_num_of_bins: number of bins that user wants to have. It should be divided to 1!! For example num_of 3 bins is not valid
+    v_num_of_bins: number of bins that user wants to have.
     Returns: List of bins
     '''
     inc = 1.0 / v_num_of_bins
@@ -369,7 +380,13 @@ def f_create_conf_matrix(v_clf, X_test, y_test):
     print(confusion_matrix(y_true, y_pred))
 
 
-def f_create_test_table(predictor, X_test, y_test, thr_value=0.5):
+def f_create_custom_test_table(predictor, X_test, y_test, thr_value=0.5):
+    """
+    Return pandas dataframe including each sample test set and corresponding predictions.
+    One can adjust thr_value for active learning purpose.
+    If probability threshold value is upper than 0.5 (ex: 0.7), predictions of some sample points would be -99 meaning NO PREDICTION (neither 0 nor 1)
+    If thr_value would be 0.7 then model predicts -99 for samples of which predicted probabilities between 0.30 and 0.70. Then they might be asked for re-labelling
+    """
     predictions = predictor.predict_proba(X_test)
 
     final_table = pd.DataFrame(data=predictions, columns=[str(x) + "_prob" for x in predictor.classes_],
@@ -395,13 +412,11 @@ def f_create_test_table(predictor, X_test, y_test, thr_value=0.5):
 
 
 def f_create_similarity (v_df, v_ref_index, v_numeric_columns_list, v_categoric_column_list):
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.preprocessing import MinMaxScaler
-    import sklearn.metrics as sm
-    # v_df = tfidf_df.copy()
-    # v_numeric_columns_list = [x for x in v_df.columns if x not in ["target_seviye"]]
-    # v_categoric_column_list = []
-    # v_ref_index = 'SD10653794'
+    """
+    returns a pandas dataframe which includes data points most similar to your given point by v_ref_index.
+    If one trying to find similar samples (like similar customers or transactions), it would be useful.
+    Another usecase is label improvement for ML cases. If you are suspicious about the label of any instance on your dataset then you can try to find the most similar ones and then check the labels of them.
+    """
     scaler = StandardScaler().fit(v_df[v_numeric_columns_list])
     df_scaled_numeric = pd.DataFrame(data = scaler.transform(v_df[v_numeric_columns_list]) , columns = v_numeric_columns_list, index = v_df.index)
     ref_array = df_scaled_numeric.loc[v_ref_index, :].values
