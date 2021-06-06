@@ -8,9 +8,6 @@ from sklearn.tree import export_text
 from sklearn.preprocessing import OneHotEncoder
 
 
-# r = export_text(clf2, feature_names=(list(X.columns)))
-# print(r)
-
 class Tree_Rules:
     def __init__(self, clf):
         self.clf = clf
@@ -102,10 +99,6 @@ class Tree_Rules:
         return df_result.loc[df_result.percentage >= percentage_limit], rules
 
 
-
-y = df["TARGET_COLUMN"]
-X = df.drop('TARGET_COLUMN', axis=1)
-clf2 = clf2.fit(X, y)
-
-obj = Tree_Rules(clf2)
-final_result, rule = obj.get_tree_rules_percentages(df, 1, 0.7, 'TARGET_COLUMN', 0)
+if __name__ == "__main__":
+   obj = Tree_Rules(classifier) ##classifier should be pre-trained decision tree scikit-learn classifier 
+   final_result, rule = obj.get_tree_rules_percentages(df, 1, 0.7, 'TARGET_COLUMN', 0)
